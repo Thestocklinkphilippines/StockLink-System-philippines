@@ -1,0 +1,106 @@
+{
+  "last_updated": "2026-03-27T03:51:08.150185+08:00",
+  "updated_by": "esp32-sim",
+  "schedules": [
+    {
+      "id": 10,
+      "schedule_name": "niggersss",
+      "enabled": true,
+      "days": [
+        "Thu"
+      ],
+      "time": "03:00",
+      "feeding_amount_kg": 0.9,
+      "last_updated": "2026-03-28T07:40:58.702081+00:00"
+    },
+    {
+      "id": 7,
+      "schedule_name": "early thu",
+      "enabled": true,
+      "days": [
+        "Tue"
+      ],
+      "time": "05:00",
+      "feeding_amount_kg": 0.5,
+      "last_updated": "2026-03-24T14:12:16.177426+00:00"
+    },
+    {
+      "id": 3,
+      "schedule_name": "Feed1",
+      "enabled": true,
+      "days": [
+        "Tue"
+      ],
+      "time": "07:00",
+      "feeding_amount_kg": 0.8,
+      "last_updated": "2026-03-26T18:28:32.886246+00:00"
+    },
+    {
+      "id": 2,
+      "schedule_name": "wends",
+      "enabled": false,
+      "days": [
+        "Wed",
+        "Thu"
+      ],
+      "time": "12:56",
+      "feeding_amount_kg": 0.9,
+      "last_updated": "2026-03-26T17:05:28.076621+00:00"
+    },
+    {
+      "id": 8,
+      "schedule_name": "monnday",
+      "enabled": true,
+      "days": [
+        "Sun"
+      ],
+      "time": "13:00",
+      "feeding_amount_kg": 0.5,
+      "last_updated": "2026-03-26T19:12:40.555217+00:00"
+    },
+    {
+      "id": 9,
+      "schedule_name": "nigger",
+      "enabled": true,
+      "days": [
+        "Fri"
+      ],
+      "time": "15:00",
+      "feeding_amount_kg": 0.5,
+      "last_updated": "2026-03-26T19:28:50.920932+00:00"
+    },
+    {
+      "id": 6,
+      "schedule_name": "Tue feed1",
+      "enabled": true,
+      "days": [
+        "Tue"
+      ],
+      "time": "18:00",
+      "feeding_amount_kg": 1.0,
+      "last_updated": "2026-03-24T14:03:11.686183+00:00"
+    },
+    {
+      "id": 1,
+      "schedule_name": "sunmon",
+      "enabled": true,
+      "days": [
+        "Sun",
+        "Mon"
+      ],
+      "time": "23:12",
+      "feeding_amount_kg": 0.1,
+      "last_updated": "2026-03-24T10:31:55.630034+00:00"
+    }
+  ],
+  "max_feeds_capacity_kg": 10.0,
+  "max_feeds_capacity_updated_at": "2026-03-26T19:51:08+00:00",
+  "max_feeds_capacity_updated_by": "esp32",
+  "system_timezone": "Asia/Manila",
+  "feeder_low_threshold_pct": 20.0,
+  "feeder_high_threshold_pct": 80.0,
+  "water_low_threshold_pct": 20.0,
+  "water_high_threshold_pct": 80.0,
+  "feeder_level_pct": 100.0,
+  "water_level_pct": 100.0
+}

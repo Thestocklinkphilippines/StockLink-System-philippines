@@ -1,0 +1,9 @@
+node_modules/
+frontend/node_modules/
+.env
+.vscode/
+__pycache__/
+*.pyc
+.pio/
+build/
+dist/

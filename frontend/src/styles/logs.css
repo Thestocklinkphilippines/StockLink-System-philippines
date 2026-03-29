@@ -1,0 +1,83 @@
+.logs-page {
+  padding: 1.25rem;
+}
+
+.logs-title {
+  font-size: 1.rem;
+  font-weight: 700;
+  color: var(--color-gray-lighter);
+}
+
+.logs-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.logs-heartbeat {
+  font-size: 0.78rem;
+  color: var(--color-gray-light);
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+}
+
+.logs-card {
+  margin-top: 0.9rem;
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--color-bg-loginsec) 70%, transparent);
+  padding: 0.9rem;
+}
+
+.logs-empty {
+  color: var(--color-gray-light);
+  font-size: 0.9rem;
+}
+
+.logs-list {
+  list-style: none;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.logs-item {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.logs-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.logs-item-type {
+  color: var(--color-gray-lighter);
+  font-weight: 600;
+}
+
+.logs-item-time {
+  color: var(--color-gray-light);
+  font-size: 0.8rem;
+}
+
+.logs-item-details {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-gray-light);
+}
+
+@media (max-width: 860px) {
+  .logs-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .logs-item-head {
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,127 @@
+<doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="styles-register.css">
+	<link rel="stylesheet" href="styles-main.css">
+</head>
+<body>
+	<main>
+		<main_content>
+      <sidepanel>
+				<div class="circle1"></div>
+    		<div class="circle2"></div>
+				<logo-container>
+					<svg class="logo-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      			<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+        	</svg>
+				</logo-container>
+
+      	<h1 class="branding-title">StockLink IoT</h1>
+				<p class="branding-text">Join the network of smart livestock management. Monitor, manage, and automate your farm with precision.</p>
+
+				<features>
+
+					<feature-item>
+						<feature-icon>
+							<svg class="feature-svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+						</feature-icon>
+						<feature-text>
+							<span>Real-time Resource Monitoring</span>
+						</feature-text>
+					</feature-item>
+
+					<feature-item>
+						<feature-icon>
+							<svg class="feature-svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+						</feature-icon>
+						<feature-text>
+						<span>Automated Scheduling Engine</span>
+						</feature-text>
+					</feature-item>
+
+					<feature-item>
+						<feature-icon>
+							<svg class="feature-svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+						</feature-icon>
+						<feature-text>
+						<span>Instant Smart Alert System</span>
+						</feature-text>
+					</feature-item>
+
+				</features>
+      </sidepanel>
+
+      <registerpanel>
+        <h2 class="logintitle">Create Account</h2>
+        <p class="logintitlemessage">Welcome! Please fill in the details below to register your farm management account.</p>
+				<form action="/register" method="post">
+					
+					<usernamefield>
+						<p>Username</p>
+						<input type="text" id="username" name="username" required>
+					</usernamefield>
+					
+					<emailfield>
+						<p>Email Address</p>
+						<input type="text" id="email" name="email" required>
+					</emailfield>
+
+					<passwordfield>
+						<div class="password-label-container">
+							<label for="password">Password</label>
+							<a class="forgot-link" href="#">Forgot Password?</a>
+						</div>
+							<input id="password" name="password" placeholder="••••••••" required type="password"/>
+							<button class="password-toggle" type="button">
+								<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+							</button>
+					</passwordfield>
+
+					<div class="terms">
+          	<input id="terms-agreed" name="terms-agreed" type="checkbox"/>
+          	<label for="terms-agreed">
+							I Agree to the <a href="#" class="terms-link">Terms of Service</a> and <a href="#" class="privacy-link">Privacy Policy</a>
+						</label>
+        	</div>
+
+					<button class="login-button" type="submit">
+						<span class="login-button-text">Create Account</span>
+						<svg class="login-button-arrow" xmlns="http://www.w3.org/2000/svg" width="3em" height="3em" viewBox="0 0 24 24" fill="none">
+							<path d="M6 12H18M18 12L13 7M18 12L13 17" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					</button>
+
+				</form>
+
+
+
+
+				<footer class="footer-links">
+        	<div class="createacc">
+						<p>
+							Already have an account?
+							<a class="createacc-link" href="#">
+								Login here
+							</a>
+						</p>
+					</div>
+
+        	<div class="copyright">
+        	  <p>© 2023 StockLink IoT Systems. All rights reserved. <br/>Secure poultry management platform.</p>
+        	</div>
+      	</footer>
+
+      </registerpanel>
+
+		</main_content>
+	</main>
+</body>
+
+
+
+
+
+</html>

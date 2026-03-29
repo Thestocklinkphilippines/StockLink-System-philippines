@@ -1,0 +1,128 @@
+.sidebar {
+  min-height: 100vh;
+  padding: 1.25rem 1rem;
+  border-right: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+  background: color-mix(in srgb, var(--color-bg-loginsec) 88%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sidebar-brand {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.35rem;
+}
+
+.sidebar .logo-container {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar .logo-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  color: var(--color-primary);
+}
+
+.sidebar .branding-title {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  color: var(--color-gray-lighter);
+}
+
+.branding-subtitle {
+  margin: 0.1rem 0 0;
+  font-size: 0.72rem;
+  color: var(--color-gray-light);
+}
+
+.nav-menu {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.nav-item {
+  display: block;
+  text-decoration: none;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.7rem;
+  color: var(--color-gray-light);
+  border: 1px solid transparent;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.nav-item:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-gray-lighter);
+}
+
+.nav-item.active {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  border-radius: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.user-avatar {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-bg-body);
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--color-primary);
+}
+
+.user-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-gray-lighter);
+}
+
+.user-role {
+  font-size: 0.67rem;
+  color: var(--color-gray-light);
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+  }
+
+  .nav-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .nav-menu {
+    grid-template-columns: 1fr;
+  }
+}

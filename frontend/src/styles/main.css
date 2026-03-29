@@ -1,0 +1,63 @@
+:root {
+  /* default to dark theme values */
+  --debug-outline: 0.3px dashed rgba(255, 0, 0, 0.3);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  outline: var(--debug-outline);
+
+  --color-form-bg: #1e1e1e;
+
+  --color-gray-light: #9ca3af;
+  --color-gray-lighter: #d1d5db;
+  --color-primary: #0df2f2;
+  --color-primary-dark: #0bc9c9;
+  --color-border: #3f3f46;
+  --color-img-border: #374151;
+  --color-placeholder: #6b7280;
+  --color-copyright: #4b5563;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg-body: #ffffff;
+    --color-bg-loginsec:#121212;
+    --color-bg-body-gray: #464242;
+    --color-text: #000000;
+    --color-form-bg: #f8f8f8;
+    --color-gray-darker: #1b1b1b;
+    --color-gray-dark: #4b5563;
+    --color-gray-light: #4b5563;
+    --color-gray-lighter: #9ca3af;
+    --color-border: #d1d5db;
+    --color-img-border: #9ca3af;
+    --color-copyright: #6b7280;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* re-assert dark values (same as defaults) in case of overrides) */
+    --color-bg-body: #0a0a0a;
+    --color-bg-loginsec:#121212;
+    --color-bg-body-gray: #464242;
+    --color-text: #ffffff;
+    --color-form-bg: #1e1e1e;
+    --color-gray-light: #9ca3af;
+    --color-gray-lighter: #d1d5db;
+    --color-border: #3f3f46;
+    --color-img-border: #374151;
+    --color-copyright: #4b5563; 
+  }
+}
+
+body {
+  background: linear-gradient(to bottom, var(--color-bg-body-gray), var(--color-bg-body));
+    color: var(--color-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+}
+

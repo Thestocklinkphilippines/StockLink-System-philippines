@@ -1,0 +1,51 @@
+.dashboard-loading-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to bottom, var(--color-bg-body-gray), var(--color-bg-body));
+}
+
+.dashboard-loading-card {
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--color-bg-loginsec) 88%, transparent);
+  color: var(--color-gray-lighter);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.dashboard-app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 18rem 1fr;
+  background: linear-gradient(to bottom, var(--color-bg-body-gray), var(--color-bg-body));
+}
+
+.dashboard-content {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dashboard-header-wrap {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--color-bg-loginsec) 84%, transparent);
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.dashboard-card {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-radius: 1rem;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg-loginsec) 76%, transparent);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+@media (max-width: 1024px) {
+  .dashboard-app {
+    grid-template-columns: 1fr;
+  }
+}

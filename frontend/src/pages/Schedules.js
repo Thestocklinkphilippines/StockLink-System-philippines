@@ -1,0 +1,282 @@
+import React, { useEffect, useState } from 'react'
+import api from '../api'
+import { getPollingIntervalMs } from '../pollingConfig'
+import '../styles/schedules.css'
+import AddScheduleModal from '../components/AddScheduleModal'
+
+export default function Schedules(){
+  const pollingIntervalMs = getPollingIntervalMs()
+  const [schedules, setSchedules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [deviceId, setDeviceId] = useState('esp32-001')
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState(null)
+  const [togglingMap, setTogglingMap] = useState({})
+  const [scheduleFilter, setScheduleFilter] = useState('all')
+
+  useEffect(()=>{
+    let isMounted = true
+
+    const refresh = async () => {
+      try{
+        const active = await api.getActiveDeviceId()
+        if (!isMounted) return
+        setDeviceId(active)
+
+        const res = await api.getJSON(`/api/device/${active}/schedules/`)
+        if (isMounted && res.ok){
+          setSchedules(res.body || [])
+        }
+      }catch(err){
+        if (isMounted) console.error('Failed to load schedules', err)
+      } finally{
+        if (isMounted) setLoading(false)
+      }
+
+    }
+
+    refresh()
+    const timer = setInterval(refresh, pollingIntervalMs)
+
+    return () => {
+      isMounted = false
+      clearInterval(timer)
+    }
+  },[pollingIntervalMs])
+
+  async function createSchedule(payload){
+    setIsSavingSchedule(true)
+    try{
+      const res = await api.postJSON(`/api/device/${deviceId}/schedules/`, payload)
+      if (res.ok){
+        setSchedules(prev => [...prev, res.body])
+        setShowAddModal(false)
+      } else {
+        const detail = res.body && (res.body.detail || JSON.stringify(res.body))
+        alert(detail || 'Failed to create schedule')
+      }
+    }catch(err){
+      alert('Failed to create schedule')
+    } finally{
+      setIsSavingSchedule(false)
+    }
+  }
+
+  async function updateSchedule(id, payload){
+    setIsSavingSchedule(true)
+    try{
+      const res = await api.patchJSON(`/api/device/${deviceId}/schedules/${id}/`, payload)
+      if (res.ok){
+        setSchedules(prev => prev.map(s => (s.id === id ? res.body : s)))
+        setShowAddModal(false)
+        setEditingSchedule(null)
+      } else {
+        const detail = res.body && (res.body.detail || JSON.stringify(res.body))
+        alert(detail || 'Failed to update schedule')
+      }
+    }catch(err){
+      alert('Failed to update schedule')
+    } finally{
+      setIsSavingSchedule(false)
+    }
+  }
+
+  async function saveSchedule(payload){
+    if (editingSchedule) {
+      await updateSchedule(editingSchedule.id, payload)
+      return
+    }
+    await createSchedule(payload)
+  }
+
+  async function deleteSchedule(id){
+    if (!confirm('Delete schedule?')) return
+    const r = await fetch(`/api/device/${deviceId}/schedules/${id}/`, { method:'DELETE', credentials:'same-origin', headers:{ 'X-CSRFToken': document.cookie.match('(^|;)\\s*csrftoken\\s*=\\s*([^;]+)')?.pop() } })
+    if (r.status===204) setSchedules(prev => prev.filter(s=>s.id!==id))
+  }
+
+  async function toggleSchedule(schedule){
+    const nextEnabled = !schedule.enabled
+    setTogglingMap(prev => ({ ...prev, [schedule.id]: true }))
+    try{
+      const res = await api.patchJSON(`/api/device/${deviceId}/schedules/${schedule.id}/`, { enabled: nextEnabled })
+      if (res.ok){
+        setSchedules(prev => prev.map(s => (s.id === schedule.id ? res.body : s)))
+      } else {
+        const detail = res.body && (res.body.detail || JSON.stringify(res.body))
+        alert(detail || 'Failed to update schedule state')
+      }
+    }catch(err){
+      alert('Failed to update schedule state')
+    } finally{
+      setTogglingMap(prev => ({ ...prev, [schedule.id]: false }))
+    }
+  }
+
+  function openAddModal(){
+    setEditingSchedule(null)
+    setShowAddModal(true)
+  }
+
+  function openEditModal(schedule){
+    setEditingSchedule(schedule)
+    setShowAddModal(true)
+  }
+
+  function closeScheduleModal(){
+    setShowAddModal(false)
+    setEditingSchedule(null)
+  }
+
+  function getScheduleTimeIcon(timeValue){
+    const hourStr = String(timeValue || '').split(':')[0]
+    const hour = Number(hourStr)
+
+    if (!Number.isFinite(hour)) {
+      return { icon: '🕒', label: 'scheduled' }
+    }
+
+    if (hour >= 3 && hour < 6) {
+      return { icon: '🌅', label: 'dawn' }
+    }
+    if (hour >= 6 && hour < 12) {
+      return { icon: '☀️', label: 'morning' }
+    }
+    if (hour >= 12 && hour < 17) {
+      return { icon: '🌤️', label: 'afternoon' }
+    }
+    if (hour >= 17 && hour < 20) {
+      return { icon: '🌇', label: 'evening' }
+    }
+    return { icon: '🌙', label: 'night' }
+  }
+
+  const visibleSchedules = schedules.filter(s => {
+    if (scheduleFilter === 'active') return Boolean(s.enabled)
+    if (scheduleFilter === 'paused') return !s.enabled
+    return true
+  })
+
+  return (
+    <div className="schedules-page">
+      <div className="schedules-stats">
+        <div className="stat-card">
+          <p className="stat-label">Today's Total</p>
+          <p className="stat-value">0.00kg</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-label">Active Schedules</p>
+          <p className="stat-value">{schedules.filter(s=>s.enabled).length}</p>
+        </div>
+      </div>
+
+      <div className="schedules-tabs-wrap">
+        <div className="schedules-filter-row">
+          <span className="schedules-filter-label">Filter</span>
+          <div className="schedules-filter-pills" role="tablist" aria-label="Schedule filter">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scheduleFilter === 'all'}
+              className={`schedules-filter-pill ${scheduleFilter === 'all' ? 'schedules-filter-pill-active' : ''}`}
+              onClick={() => setScheduleFilter('all')}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scheduleFilter === 'active'}
+              className={`schedules-filter-pill ${scheduleFilter === 'active' ? 'schedules-filter-pill-active' : ''}`}
+              onClick={() => setScheduleFilter('active')}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scheduleFilter === 'paused'}
+              className={`schedules-filter-pill ${scheduleFilter === 'paused' ? 'schedules-filter-pill-active' : ''}`}
+              onClick={() => setScheduleFilter('paused')}
+            >
+              Paused
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <main className="schedules-list">
+        {loading ? <div className="schedules-loading">Loading...</div> : (
+          visibleSchedules.length === 0 ? (
+            <div className="schedules-empty">No schedules match this filter.</div>
+          ) : (
+          visibleSchedules.map(s => {
+            const timeIcon = getScheduleTimeIcon(s.time)
+            return (
+            <article key={s.id} className="schedule-item">
+              <div className="schedule-row">
+                <div>
+                  <div className="schedule-title-row">
+                    <span className="schedule-icon" aria-label={`${timeIcon.label} schedule`} title={`${timeIcon.label} schedule`}>
+                      {timeIcon.icon}
+                    </span>
+                    <h3 className="schedule-title">{s.schedule_name}</h3>
+                  </div>
+                  <p className="schedule-days">{(s.days && s.days.join(', ')) || 'Daily'}</p>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    className={`schedule-toggle ${s.enabled ? 'schedule-toggle-on' : ''}`}
+                    onClick={()=>toggleSchedule(s)}
+                    disabled={Boolean(togglingMap[s.id])}
+                    aria-pressed={s.enabled}
+                    aria-label={`${s.enabled ? 'Disable' : 'Enable'} schedule ${s.schedule_name}`}
+                  >
+                    <span className={`schedule-toggle-knob ${s.enabled ? 'schedule-toggle-knob-on' : ''}`}></span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="schedule-row schedule-row-bottom">
+                <div className="schedule-meta">
+                  <div>
+                    <div className="schedule-meta-label">Time</div>
+                    <div className="schedule-meta-value">{s.time}</div>
+                  </div>
+                  <div>
+                    <div className="schedule-meta-label">Amount</div>
+                    <div className="schedule-meta-value">{s.feeding_amount_kg}kg</div>
+                  </div>
+                </div>
+                <div className="schedule-actions">
+                  <button onClick={()=>openEditModal(s)} className="schedule-action schedule-action-edit">✎</button>
+                  <button onClick={()=>deleteSchedule(s.id)} className="schedule-action schedule-action-delete">🗑</button>
+                </div>
+              </div>
+            </article>
+          )}))
+        )}
+
+        <div className="schedules-feed-now">
+          <div>
+            <h4>Need to feed now?</h4>
+            <p>Dispense a single portion instantly</p>
+          </div>
+          <button className="feed-now-btn">Feed Now</button>
+        </div>
+      </main>
+
+      <button className="fab-add" onClick={openAddModal} aria-label="Add schedule">+</button>
+
+      <AddScheduleModal
+        open={showAddModal}
+        onClose={closeScheduleModal}
+        onSubmit={saveSchedule}
+        isSubmitting={isSavingSchedule}
+        initialSchedule={editingSchedule}
+      />
+    </div>
+  )
+}

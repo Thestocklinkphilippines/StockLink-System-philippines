@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>StockLink - IoT Modern Chicken Feeder &amp; Drinker System</title>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0df2f2',
+            'primary-dark': '#0bc9c9',
+            dark: {
+              900: '#0a0a0a',
+              800: '#121212',
+              700: '#1e1e1e',
+              600: '#2d2d2d'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          borderRadius: {
+            'full': '9999px',
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-styles">
+    body {
+      background-color: #0a0a0a;
+      color: #ffffff;
+      font-family: 'Inter', sans-serif;
+    }
+    .glass-effect {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    /* Smooth transitions for inputs and buttons */
+    input, button {
+      transition: all 0.2s ease-in-out;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-0 m-0 overflow-hidden">
+<!-- BEGIN: MainContainer -->
+<main class="flex flex-col md:flex-row w-full min-h-screen" data-purpose="login-split-panel">
+<!-- BEGIN: LeftBrandingPanel -->
+<section class="hidden md:flex md:w-1/2 relative flex-col justify-center px-16 py-12 bg-dark-900 overflow-hidden" data-purpose="branding-side">
+<!-- Background Decorative Elements -->
+<div class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/10 rounded-full blur-[120px]"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-primary/5 rounded-full blur-[120px]"></div>
+<!-- Content Wrapper -->
+<div class="relative z-10 max-w-lg">
+<!-- Logo Area -->
+<div class="w-20 h-20 bg-primary/20 rounded-2xl flex items-center justify-center mb-10 border border-primary/30" data-purpose="logo-container">
+<svg class="w-12 h-12 text-primary" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+</svg>
+</div>
+<!-- Typography -->
+<h1 class="text-5xl font-bold leading-tight mb-6 bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+          StockLink IoT
+        </h1>
+<p class="text-xl text-gray-400 font-medium mb-12">
+          Smart Feeding &amp; Drinker Systems for modern poultry farms. Monitor, manage, and automate with precision.
+        </p>
+<!-- Feature List -->
+<div class="space-y-6" data-purpose="feature-highlights">
+<div class="flex items-center gap-4 text-gray-300">
+<div class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+</div>
+<span class="text-lg">Real-time Resource Monitoring</span>
+</div>
+<div class="flex items-center gap-4 text-gray-300">
+<div class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+</div>
+<span class="text-lg">Automated Scheduling Engine</span>
+</div>
+<div class="flex items-center gap-4 text-gray-300">
+<div class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+</div>
+<span class="text-lg">Instant Smart Alert System</span>
+</div>
+</div>
+</div>
+<!-- Footer Illustration Placeholder -->
+<div class="absolute bottom-12 left-16 right-16 pointer-events-none opacity-50 h-64 overflow-hidden">
+<img alt="Modern IoT Poultry Farm" class="rounded-xl border border-gray-800 object-cover w-full h-full" src="{{DATA:IMAGE:IMAGE_28}}"/>
+</div>
+</section>
+<!-- END: LeftBrandingPanel -->
+<!-- BEGIN: RightFormPanel -->
+<section class="w-full md:w-1/2 flex items-center justify-center p-6 sm:p-12 lg:p-24 bg-dark-800" data-purpose="form-side">
+<div class="w-full max-w-md" data-purpose="login-card">
+<!-- Mobile Logo (Visible only on small screens) -->
+<div class="flex md:hidden justify-center mb-8">
+<div class="w-16 h-16 bg-primary/20 rounded-2xl flex items-center justify-center border border-primary/30">
+<svg class="w-10 h-10 text-primary" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+</svg>
+</div>
+</div>
+<header class="text-center md:text-left mb-10">
+<h2 class="text-3xl font-bold text-white mb-3">Control Panel Login</h2>
+<p class="text-gray-400">Welcome back. Access your poultry management dashboard.</p>
+</header>
+<form action="#" class="space-y-6" method="POST">
+<!-- Email/Username Field -->
+<div data-purpose="input-group">
+<label class="block text-sm font-medium text-gray-300 mb-2" for="identity">Email or Username</label>
+<input class="w-full h-14 bg-dark-700 border-dark-600 border rounded-full px-6 text-white placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent outline-none" id="identity" name="identity" placeholder="admin@stocklink.com" required="" type="text"/>
+</div>
+<!-- Password Field -->
+<div data-purpose="input-group">
+<div class="flex justify-between items-center mb-2">
+<label class="block text-sm font-medium text-gray-300" for="password">Password</label>
+<a class="text-xs font-semibold text-primary hover:text-primary-dark transition-colors" href="#">Forgot Password?</a>
+</div>
+<div class="relative">
+<input class="w-full h-14 bg-dark-700 border-dark-600 border rounded-full px-6 text-white placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent outline-none" id="password" name="password" placeholder="••••••••" required="" type="password"/>
+<button class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300" type="button">
+<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+</button>
+</div>
+</div>
+<!-- Remember Me & Misc -->
+<div class="flex items-center">
+<input class="h-4 w-4 rounded border-dark-600 bg-dark-700 text-primary focus:ring-primary transition-all cursor-pointer" id="remember-me" name="remember-me" type="checkbox"/>
+<label class="ml-3 block text-sm text-gray-400 select-none cursor-pointer" for="remember-me">
+              Remember this device for 30 days
+            </label>
+</div>
+<!-- Login Button -->
+<button class="w-full h-14 bg-primary hover:bg-primary-dark text-dark-900 font-bold text-lg rounded-full shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transform active:scale-[0.98]" type="submit">
+<span>Login to Dashboard</span>
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<line x1="5" x2="19" y1="12" y2="12"></line>
+<polyline points="12 5 19 12 12 19"></polyline>
+</svg>
+</button>
+</form>
+<!-- Footer Links -->
+<footer class="mt-10 text-center">
+<p class="text-gray-500 text-sm">
+            Don't have an account yet? 
+            <a class="text-primary font-semibold hover:underline decoration-2 underline-offset-4 ml-1" href="#">Create an account</a>
+</p>
+<div class="mt-12 pt-8 border-t border-dark-700">
+<p class="text-xs text-gray-600">
+              © 2023 StockLink IoT Systems. All rights reserved. <br/>
+              Secure poultry management platform.
+            </p>
+</div>
+</footer>
+</div>
+</section>
+<!-- END: RightFormPanel -->
+</main>
+<!-- END: MainContainer -->
+<!-- BEGIN: Scripts -->
+<script data-purpose="ui-interactions">
+    // Simple script to handle password visibility toggle
+    document.addEventListener('DOMContentLoaded', () => {
+      const toggleBtn = document.querySelector('button[type="button"]');
+      const passwordInput = document.getElementById('password');
+      
+      if (toggleBtn && passwordInput) {
+        toggleBtn.addEventListener('click', () => {
+          const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+          passwordInput.setAttribute('type', type);
+          
+          // Toggle icon (optional visual feedback)
+          toggleBtn.style.color = type === 'text' ? '#0df2f2' : '#6b7280';
+        });
+      }
+    });
+  </script>
+<!-- END: Scripts -->
+</body></html>
