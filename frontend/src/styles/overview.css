@@ -21,11 +21,22 @@
   opacity: 0.9;
 }
 
-.overview-grid {
+.overview-layout-grid {
   margin-top: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18.5rem;
+  gap: 1rem;
+}
+
+.overview-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.9rem;
+}
+
+.overview-stats-grid {
+  margin-top: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .overview-stat-card {
@@ -165,6 +176,74 @@
   color: #fcd34d;
 }
 
+.overview-right-panel {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+}
+
+.overview-side-card {
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  padding: 0.85rem;
+}
+
+.overview-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.overview-side-head h4 {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--color-gray-lighter);
+}
+
+.overview-side-link {
+  font-size: 0.76rem;
+  color: var(--color-primary);
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, transparent);
+  border-radius: 0.45rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.overview-side-kpi-row {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.overview-side-kpi-label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-gray-light);
+}
+
+.overview-side-kpi {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 1rem;
+  color: var(--color-gray-lighter);
+}
+
+.overview-side-kpi-warn {
+  color: #fca5a5;
+}
+
+.overview-side-note {
+  margin-top: 0.65rem;
+  font-size: 0.76rem;
+  color: var(--color-gray-light);
+  line-height: 1.3;
+}
+
 /* Sensor status cards */
 .overview-sensor-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -258,8 +337,16 @@
 }
 
 @media (max-width: 900px) {
+  .overview-layout-grid {
+    grid-template-columns: 1fr;
+  }
+
   .overview-grid {
     grid-template-columns: 1fr;
+  }
+
+  .overview-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .overview-sensor-grid {
@@ -274,5 +361,11 @@
   .overview-schedule-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .overview-stats-grid {
+    grid-template-columns: 1fr;
   }
 }

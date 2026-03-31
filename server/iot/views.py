@@ -441,13 +441,36 @@ class LogsView(APIView):
             return Response({'detail': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
         log_type = request.data.get('log_type', 'generic')
         payload = request.data.get('payload', {})
-        log = Log.objects.create(device=device, log_type=log_type, payload=payload)
-        return Response({'id': log.id}, status=status.HTTP_201_CREATED)
+        timestamp_str = request.data.get('timestamp')
+        
+        # Parse timestamp from ESP32 (ISO8601 format expected)
+        if not timestamp_str:
+            return Response({'detail': 'Missing timestamp'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        log_timestamp = _parse_optional_dt(timestamp_str)
+        if log_timestamp is None:
+            return Response({'detail': 'Invalid timestamp format'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if a log of this type already exists for this device (get most recent)
+        existing_log = Log.objects.filter(device=device, log_type=log_type).order_by('-id').first()
+        
+        if existing_log:
+            # Refresh the existing log: update timestamp and payload, increment count
+            existing_log.timestamp = log_timestamp
+            existing_log.payload = payload
+            existing_log.refresh_count += 1
+            existing_log.save(update_fields=['timestamp', 'payload', 'refresh_count', 'last_updated'])
+            log = existing_log
+            return Response({'id': log.id, 'refreshed': True}, status=status.HTTP_200_OK)
+        else:
+            # Create a new log if none exists
+            log = Log.objects.create(device=device, log_type=log_type, payload=payload, timestamp=log_timestamp)
+            return Response({'id': log.id, 'refreshed': False}, status=status.HTTP_201_CREATED)
 
 class AlertsView(APIView):
     def get(self, request, device_id):
         device = get_object_or_404(Device, device_id=device_id)
-        alerts = Alert.objects.filter(device=device).order_by('-timestamp')[:200]
+        alerts = Alert.objects.filter(device=device).order_by('-last_updated', '-id')[:200]
         serializer = AlertSerializer(alerts, many=True)
         return Response(serializer.data)
 
@@ -458,8 +481,25 @@ class AlertsView(APIView):
         alert_type = request.data.get('alert_type')
         if not alert_type:
             return Response({'detail': 'Missing alert_type'}, status=status.HTTP_400_BAD_REQUEST)
-        alert = Alert.objects.create(device=device, alert_type=alert_type)
-        return Response({'id': alert.id}, status=status.HTTP_201_CREATED)
+        
+        # Check if an unresolved alert of this type already exists for this device
+        existing_alert = Alert.objects.filter(
+            device=device,
+            alert_type=alert_type,
+            resolved=False
+        ).order_by('-last_updated', '-id').first()
+        
+        if existing_alert:
+            # Refresh the existing alert: bump count and move timestamp to latest occurrence.
+            existing_alert.timestamp = timezone.now()
+            existing_alert.refresh_count += 1
+            existing_alert.save(update_fields=['timestamp', 'refresh_count', 'last_updated'])
+            alert = existing_alert
+            return Response({'id': alert.id, 'refreshed': True}, status=status.HTTP_200_OK)
+        else:
+            # Create a new alert if none exists
+            alert = Alert.objects.create(device=device, alert_type=alert_type, timestamp=timezone.now())
+            return Response({'id': alert.id, 'refreshed': False}, status=status.HTTP_201_CREATED)
 
 
 class SensorStateView(APIView):
@@ -504,7 +544,20 @@ class SensorStateView(APIView):
         sensor_state.last_reported_at = reported_at or timezone.now()
         sensor_state.save()
 
+        # Auto-resolve low-feed alerts only after feeder recovers past the high threshold (hysteresis).
+        thresholds = _get_effective_thresholds()
+        feeder_recovery_threshold = float(thresholds.get('feeder_high_threshold_pct', 80.0))
+        resolved_low_feed_alerts = 0
+        if feeder_level >= feeder_recovery_threshold:
+            resolved_low_feed_alerts = Alert.objects.filter(
+                device=device,
+                alert_type='low_feed',
+                resolved=False,
+            ).update(resolved=True, last_updated=timezone.now())
+
         serializer = DeviceSensorStateSerializer(sensor_state)
         response_data = serializer.data
         response_data['status'] = 'updated'
+        response_data['low_feed_alerts_auto_resolved'] = resolved_low_feed_alerts
+        response_data['feeder_recovery_threshold_pct'] = feeder_recovery_threshold
         return Response(response_data, status=status.HTTP_200_OK)

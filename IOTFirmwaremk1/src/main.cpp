@@ -35,7 +35,7 @@ void setupPins() {
 }
 
 void setupTime() {
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  configTime(DEVICE_TZ_OFFSET_SECONDS, 0, "pool.ntp.org", "time.nist.gov");
   LOG_INFO("Waiting for NTP sync...");
   time_t now = time(nullptr);
   int wait = 0;

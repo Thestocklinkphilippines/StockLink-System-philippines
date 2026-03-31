@@ -33,14 +33,18 @@ class Schedule(models.Model):
 class Alert(models.Model):
     device = models.ForeignKey(Device, on_delete=models.CASCADE)
     alert_type = models.CharField(max_length=64)
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField()  # When alert first occurred
+    last_updated = models.DateTimeField(auto_now=True)  # Last time alert was seen/refreshed
+    refresh_count = models.IntegerField(default=1)  # How many times we've seen this alert
     resolved = models.BooleanField(default=False)
 
 class Log(models.Model):
     device = models.ForeignKey(Device, on_delete=models.CASCADE)
     log_type = models.CharField(max_length=64)
     payload = models.JSONField(default=dict)
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField()  # Timestamp of event (from ESP32)
+    last_updated = models.DateTimeField(auto_now=True)  # When we last saw this log
+    refresh_count = models.IntegerField(default=1)  # How many times we've seen this log type
 
 
 class SystemSettings(models.Model):

@@ -31,10 +31,11 @@ void checkLowFeedPrediction(JsonArray schedules, JsonVariant cfg) {
 }
 
 void checkSchedulesAndExecute(JsonArray schedules, JsonVariant cfg) {
+  (void)cfg;
   time_t now;
   time(&now);
   struct tm timeinfo;
-  gmtime_r(&now, &timeinfo);
+  localtime_r(&now, &timeinfo);
 
   char nowStr[6];
   strftime(nowStr, sizeof(nowStr), "%H:%M", &timeinfo);

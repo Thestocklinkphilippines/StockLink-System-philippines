@@ -10,10 +10,11 @@
 #include "sf_utils.h"
 
 // Keep large JSON documents out of loopTask stack.
-static StaticJsonDocument<3072> gServerDoc;
-static StaticJsonDocument<3072> gLocalDoc;
-static StaticJsonDocument<2048> gPostDoc;
-static StaticJsonDocument<4096> gConflictDoc;
+// Config payload can grow with schedules/runtime fields, so use extra headroom.
+static StaticJsonDocument<8192> gServerDoc;
+static StaticJsonDocument<8192> gLocalDoc;
+static StaticJsonDocument<4096> gPostDoc;
+static StaticJsonDocument<8192> gConflictDoc;
 
 bool httpGetJson(const String& url, String& outBody) {
   HTTPClient http;
@@ -49,6 +50,7 @@ void sendLog(const char* type, JsonVariant payload) {
   StaticJsonDocument<512> doc;
   doc["log_type"] = type;
   doc["payload"] = payload;
+  doc["timestamp"] = getUtcIsoNow();  // Add current UTC timestamp
   String body;
   serializeJson(doc, body);
   String resp;
@@ -84,7 +86,7 @@ void syncWithServer() {
   gServerDoc.clear();
   DeserializationError err = deserializeJson(gServerDoc, body);
   if (err) {
-    LOG_ERROR("Invalid config JSON from server");
+    LOG_ERROR("Invalid config JSON from server: %s (bytes=%u)", err.c_str(), (unsigned int)body.length());
     return;
   }
 

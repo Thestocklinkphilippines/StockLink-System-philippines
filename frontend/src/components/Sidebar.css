@@ -1,11 +1,16 @@
 .sidebar {
-  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
   padding: 1.25rem 1rem;
   border-right: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
   background: color-mix(in srgb, var(--color-bg-loginsec) 88%, transparent);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sidebar-brand {
@@ -73,6 +78,8 @@
 
 .sidebar-footer {
   margin-top: auto;
+  display: grid;
+  gap: 0.55rem;
 }
 
 .user-chip {
@@ -109,9 +116,33 @@
   color: var(--color-gray-light);
 }
 
+.sidebar-logout-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sidebar-logout-btn:hover {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
 @media (max-width: 1024px) {
   .sidebar {
+    position: static;
+    top: auto;
+    align-self: stretch;
+    height: auto;
     min-height: auto;
+    overflow: visible;
     border-right: none;
     border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
   }

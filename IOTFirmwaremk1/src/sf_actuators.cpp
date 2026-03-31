@@ -12,36 +12,59 @@
 bool isFeedSufficient(float requiredKg, JsonVariant cfg) {
   float maxCap = getConfigOrDefault(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
   if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
+
+#if SF_SIMULATION_MODE
+  // In simulation, feeder percentage is the source of truth for amount remaining.
+  float rem = (clampf(state.simFeederLevelPct, 0.0f, 100.0f) / 100.0f) * maxCap;
+  LOG_DEBUG("Feed sufficiency check required=%.3fkg remaining=%.3fkg (sim)", requiredKg, rem);
+  return rem >= requiredKg;
+#else
   float rem = readRemainingKg();
   if (rem < 0.0f || rem > maxCap * 2.0f) {
     rem = (getFeederLevelPct(cfg) / 100.0f) * maxCap;
   }
   LOG_DEBUG("Feed sufficiency check required=%.3fkg remaining=%.3fkg", requiredKg, rem);
   return rem >= requiredKg;
+#endif
 }
 
 void dispenseFeed(float amountKg, JsonVariant cfg) {
   LOG_INFO("Dispense request amount=%.3fkg", amountKg);
+  float maxCap = getConfigOrDefault(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
+  if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
+
+  float rem = 0.0f;
+  float feederPct = 0.0f;
 #if SF_SIMULATION_MODE
   LOG_INFO("SIM mode: virtual feed dispense executed");
+
+  float simRem = (clampf(state.simFeederLevelPct, 0.0f, 100.0f) / 100.0f) * maxCap;
+  simRem -= amountKg;
+  if (simRem < 0.0f) simRem = 0.0f;
+
+  rem = simRem;
+  feederPct = (maxCap > 0.0f) ? clampf((rem / maxCap) * 100.0f, 0.0f, 100.0f) : 0.0f;
+  state.simFeederLevelPct = feederPct;
 #else
   digitalWrite(PIN_FEED_MOTOR, HIGH);
   unsigned long runMs = (unsigned long)(amountKg * 4000.0f);
   if (runMs < 300) runMs = 300;
   delay(runMs);
   digitalWrite(PIN_FEED_MOTOR, LOW);
-#endif
 
-  float rem = readRemainingKg();
+  rem = readRemainingKg();
   rem -= amountKg;
   if (rem < 0.0f) rem = 0.0f;
+  feederPct = getFeederLevelPct(cfg);
+#endif
+
   writeRemainingKg(rem);
 
   StaticJsonDocument<256> p;
   p["amount_kg"] = amountKg;
   p["remaining_kg"] = rem;
   p["simulated"] = SF_SIMULATION_MODE ? true : false;
-  p["feeder_level_pct"] = getFeederLevelPct(cfg);
+  p["feeder_level_pct"] = feederPct;
   sendLog("feeding", p.as<JsonVariant>());
 }
 

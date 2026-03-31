@@ -50,15 +50,18 @@ class DeviceConfigAdmin(admin.ModelAdmin):
 
 @admin.register(Alert)
 class AlertAdmin(admin.ModelAdmin):
-    list_display = ('device', 'alert_type', 'timestamp', 'resolved')
+    list_display = ('device', 'alert_type', 'timestamp', 'last_updated', 'refresh_count', 'resolved')
     list_filter = ('alert_type', 'resolved')
     search_fields = ('device__device_id', 'alert_type')
+    ordering = ('-last_updated', '-id')
 
 
 @admin.register(Log)
 class LogAdmin(admin.ModelAdmin):
-    list_display = ('device', 'log_type', 'timestamp')
+    list_display = ('device', 'log_type', 'timestamp', 'last_updated', 'refresh_count')
+    list_filter = ('log_type',)
     search_fields = ('device__device_id', 'log_type')
+    ordering = ('-last_updated', '-id')
 
 
 @admin.register(Schedule)

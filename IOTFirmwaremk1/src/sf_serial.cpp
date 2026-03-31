@@ -4,10 +4,15 @@
 #include <stdlib.h>
 
 #include "sf_config.h"
+#include "sf_actuators.h"
 #include "sf_debug.h"
 #include "sf_globals.h"
+#include "sf_network.h"
 #include "sf_storage.h"
 #include "sf_utils.h"
+
+// Keep large JSON buffers off the loopTask stack.
+static StaticJsonDocument<4096> gSerialCfgDoc;
 
 static bool tryParseFloat(const String& token, float& outValue) {
   if (token.length() == 0) return false;
@@ -95,12 +100,121 @@ static void resetSimDefaultsCommand() {
 #endif
 }
 
+static bool loadCfgDoc() {
+  String cfg = loadLocalConfig();
+  if (cfg.length() == 0) {
+    Serial.println("Config is empty.");
+    return false;
+  }
+  gSerialCfgDoc.clear();
+  DeserializationError err = deserializeJson(gSerialCfgDoc, cfg);
+  if (err) {
+    Serial.printf("Config parse error: %s\n", err.c_str());
+    return false;
+  }
+  return true;
+}
+
+static void listSchedulesCommand() {
+  if (!loadCfgDoc()) return;
+
+  JsonArray schedules = gSerialCfgDoc["schedules"].as<JsonArray>();
+  if (schedules.isNull() || schedules.size() == 0) {
+    Serial.println("No schedules in local config.");
+    return;
+  }
+
+  Serial.println("Schedules (local config):");
+  int idx = 0;
+  for (JsonVariant s : schedules) {
+    idx++;
+    int id = s["id"] | -1;
+    const char* name = s["schedule_name"] | "(unnamed)";
+    const char* timeStr = s["time"] | "--:--";
+    bool enabled = s["enabled"] | false;
+    float amount = s["feeding_amount_kg"] | 0.0f;
+    Serial.printf("  [%d] id=%d enabled=%d time=%s amount=%.3f name=%s\n",
+                  idx, id, enabled ? 1 : 0, timeStr, amount, name);
+  }
+}
+
+static void runScheduleNowCommand(const String& args) {
+  if (!loadCfgDoc()) return;
+
+  JsonArray schedules = gSerialCfgDoc["schedules"].as<JsonArray>();
+  if (schedules.isNull() || schedules.size() == 0) {
+    Serial.println("No schedules to run.");
+    return;
+  }
+
+  String selector = args;
+  selector.trim();
+
+  JsonVariant selected;
+  if (selector.length() == 0) {
+    for (JsonVariant s : schedules) {
+      if (s["enabled"] | false) {
+        selected = s;
+        break;
+      }
+    }
+  } else {
+    int wanted = 0;
+    if (!tryParseInt(selector, wanted) || wanted <= 0) {
+      Serial.println("Usage: sched_run [id]. Example: sched_run 12");
+      return;
+    }
+    for (JsonVariant s : schedules) {
+      if ((s["id"] | -1) == wanted) {
+        selected = s;
+        break;
+      }
+    }
+  }
+
+  if (selected.isNull()) {
+    if (selector.length() == 0) {
+      Serial.println("No enabled schedule found.");
+    } else {
+      Serial.printf("Schedule id=%s not found in local config.\n", selector.c_str());
+    }
+    return;
+  }
+
+  bool enabled = selected["enabled"] | false;
+  float amt = selected["feeding_amount_kg"] | 0.0f;
+  int id = selected["id"] | -1;
+  const char* name = selected["schedule_name"] | "(unnamed)";
+  const char* timeStr = selected["time"] | "--:--";
+
+  if (!enabled) {
+    Serial.printf("Schedule id=%d is disabled; not running.\n", id);
+    return;
+  }
+  if (amt <= 0.0f) {
+    Serial.printf("Schedule id=%d has invalid amount %.3f; not running.\n", id, amt);
+    return;
+  }
+
+  Serial.printf("Manual run schedule id=%d name=%s time=%s amount=%.3f (time ignored)\n", id, name, timeStr, amt);
+  JsonVariant cfg = gSerialCfgDoc.as<JsonVariant>();
+  if (isFeedSufficient(amt, cfg)) {
+    dispenseFeed(amt, cfg);
+    Serial.println("Manual schedule run complete.");
+  } else {
+    Serial.println("Manual schedule run blocked: insufficient feed.");
+    sendAlert("low_feed");
+  }
+}
+
 void printSerialHelp() {
   Serial.println("================ SMART FEEDER SERIAL COMMANDS ================");
   Serial.println("help         -> show this command list");
   Serial.println("dump_cfg     -> print full local JSON config from Preferences");
   Serial.println("dump_state   -> print runtime state snapshot");
   Serial.println("dump_prefs   -> print key preferences values");
+  Serial.println("sched_list   -> list schedules from local config");
+  Serial.println("sched_run    -> run schedule now (ignore time): sched_run [id]");
   Serial.println("sim_set      -> set sim value: sim_set feeder|water|mains <value>");
   Serial.println("sim_defaults -> reset sim values to defaults");
   Serial.println("===============================================================");
@@ -163,6 +277,21 @@ void executeSerialCommand(const String& rawCmd) {
 
   if (cmd == "dump_prefs") {
     dumpPrefsToSerial();
+    return;
+  }
+
+  if (cmd == "sched_list") {
+    listSchedulesCommand();
+    return;
+  }
+
+  if (cmd == "sched_run") {
+    runScheduleNowCommand("");
+    return;
+  }
+
+  if (cmd.startsWith("sched_run ")) {
+    runScheduleNowCommand(cmd.substring(10));
     return;
   }
 

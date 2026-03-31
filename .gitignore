@@ -1,9 +1,7 @@
 node_modules/
 frontend/node_modules/
-.env
-.vscode/
+.venv/
 __pycache__/
 *.pyc
 .pio/
-build/
 dist/

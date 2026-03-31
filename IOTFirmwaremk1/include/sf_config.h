@@ -20,6 +20,9 @@ static const char* SERVER_BASE = "http://192.168.0.100:8000/api";
 static const char* DEVICE_ID = "001";
 static const char* AUTH_TOKEN = "devtoken";
 
+// Local timezone offset from UTC in seconds (e.g. UTC+8 = 28800).
+static const long DEVICE_TZ_OFFSET_SECONDS = 8L * 3600L;
+
 // =========================
 // Preferences storage keys
 // =========================
@@ -30,15 +33,15 @@ static const char* PREF_REMAINING_KG = "remaining";
 // =========================
 // Timing
 // =========================
-static const unsigned long SYNC_INTERVAL_MS = 10000UL;
+static const unsigned long SYNC_INTERVAL_MS = 5000UL;
 static const unsigned long SCHEDULE_CHECK_INTERVAL_MS = 60000UL;
 static const unsigned long WATER_CHECK_INTERVAL_MS = 5UL * 60UL * 1000UL;
-static const unsigned long SENSOR_REPORT_INTERVAL_MS = 60000UL;
+static const unsigned long SENSOR_REPORT_INTERVAL_MS = 5000UL;
 static const unsigned long WIFI_RECONNECT_INTERVAL_MS = 15000UL;
 static const unsigned long MAINS_CHECK_INTERVAL_MS = 1000UL;
 static const unsigned long KEYPAD_POLL_INTERVAL_MS = 250UL;
 static const unsigned long LOCAL_CONFIG_REFRESH_INTERVAL_MS = 2000UL;
-static const unsigned long HEARTBEAT_LOG_INTERVAL_MS = 60000UL;
+static const unsigned long HEARTBEAT_LOG_INTERVAL_MS = 5000UL;
 static const unsigned long MAIN_LOOP_DELAY_MS = 100UL;
 
 // =========================
