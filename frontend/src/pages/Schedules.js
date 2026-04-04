@@ -4,9 +4,36 @@ import { getPollingIntervalMs } from '../pollingConfig'
 import '../styles/schedules.css'
 import AddScheduleModal from '../components/AddScheduleModal'
 
+function parseDispensedKg(logEntry){
+  const payload = logEntry && typeof logEntry.payload === 'object' ? logEntry.payload : {}
+  const candidates = [
+    payload.dispensed_kg,
+    payload.feeding_amount_kg,
+    payload.amount_kg,
+    payload.dispensedKg,
+    payload.amountKg,
+  ]
+
+  for (const value of candidates) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric) && numeric > 0) return numeric
+  }
+
+  return 0
+}
+
+function isSameLocalDay(a, b){
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
 export default function Schedules(){
   const pollingIntervalMs = getPollingIntervalMs()
   const [schedules, setSchedules] = useState([])
+  const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [deviceId, setDeviceId] = useState('esp32-001')
   const [showAddModal, setShowAddModal] = useState(false)
@@ -24,9 +51,16 @@ export default function Schedules(){
         if (!isMounted) return
         setDeviceId(active)
 
-        const res = await api.getJSON(`/api/device/${active}/schedules/`)
-        if (isMounted && res.ok){
-          setSchedules(res.body || [])
+        const [schedulesRes, logsRes] = await Promise.all([
+          api.getJSON(`/api/device/${active}/schedules/`),
+          api.getJSON(`/api/device/${active}/logs/`),
+        ])
+
+        if (isMounted && schedulesRes.ok){
+          setSchedules(schedulesRes.body || [])
+        }
+        if (isMounted && logsRes.ok) {
+          setLogs(logsRes.body || [])
         }
       }catch(err){
         if (isMounted) console.error('Failed to load schedules', err)
@@ -158,12 +192,19 @@ export default function Schedules(){
     return true
   })
 
+  const today = new Date()
+  const todaysTotalKg = logs.reduce((sum, logEntry) => {
+    const ts = new Date(logEntry.timestamp)
+    if (Number.isNaN(ts.getTime()) || !isSameLocalDay(ts, today)) return sum
+    return sum + parseDispensedKg(logEntry)
+  }, 0)
+
   return (
     <div className="schedules-page">
       <div className="schedules-stats">
         <div className="stat-card">
           <p className="stat-label">Today's Total</p>
-          <p className="stat-value">0.00kg</p>
+          <p className="stat-value">{todaysTotalKg.toFixed(2)}kg</p>
         </div>
         <div className="stat-card">
           <p className="stat-label">Active Schedules</p>

@@ -1,0 +1,289 @@
+.auth-page {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--text);
+}
+
+.auth-page .main-content {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.auth-page .sidepanel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 50%;
+  background: var(--background);
+}
+
+.auth-page .circle1,
+.auth-page .circle2 {
+  position: fixed;
+  width: 24rem;
+  height: 24rem;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  background: color-mix(in srgb, var(--secondary) 30%, transparent);
+}
+
+.auth-page .logo-container {
+  width: 5rem;
+  height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--secondary) 32%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.auth-page .logo-icon {
+  width: 4rem;
+  height: 4rem;
+  color: var(--primary);
+}
+
+.auth-page .branding-title {
+  margin: 0 7rem 0 2rem;
+  font-size: 3rem;
+  font-weight: 700;
+  text-align: left;
+  color: var(--text);
+}
+
+.auth-page .branding-text {
+  margin: 0 7rem 0 2rem;
+  font-size: 1.35rem;
+  font-weight: 500;
+  text-align: left;
+  color: var(--text);
+}
+
+.auth-page .features {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  margin: 0 2rem;
+}
+
+.auth-page .feature-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1rem;
+}
+
+.auth-page .feature-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.auth-page .feature-svg {
+  display: block;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.auth-page .feature-text {
+  margin: 1rem 0;
+}
+
+.auth-page .login-panel,
+.auth-page .register-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 50%;
+  padding: 2.5rem;
+  z-index: 2;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.auth-page .logintitle {
+  margin: 0;
+}
+
+.auth-page .logintitlemessage {
+  margin: 1rem 0;
+}
+
+.auth-page form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 1rem;
+  width: 100%;
+}
+
+.auth-page .username-field,
+.auth-page .email-field,
+.auth-page .password-field {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.auth-page .username-field input,
+.auth-page .email-field input,
+.auth-page .password-field input,
+.auth-page .auth-input {
+  width: 100%;
+  height: 3.5rem;
+  padding: 0 1.5rem;
+  color: var(--text);
+  background: var(--background-50);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--background));
+  border-radius: 9999px;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.auth-page .username-field input:-webkit-autofill,
+.auth-page .email-field input:-webkit-autofill,
+.auth-page .password-field input:-webkit-autofill,
+.auth-page .auth-input:-webkit-autofill {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0px 1000px var(--background-50) inset;
+  box-shadow: 0 0 0px 1000px var(--background-50) inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+.auth-page .username-field input::placeholder,
+.auth-page .email-field input::placeholder,
+.auth-page .password-field input::placeholder,
+.auth-page .auth-input::placeholder {
+  color: var(--text-500);
+}
+
+.auth-page .username-field input:focus,
+.auth-page .email-field input:focus,
+.auth-page .password-field input:focus,
+.auth-page .auth-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--secondary);
+  border-color: transparent;
+}
+
+.auth-page .password-label-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.auth-page .password-toggle {
+  position: relative;
+  right: 1rem;
+  bottom: 2.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  width: 2rem;
+  height: 2rem;
+  background: none;
+  border: none;
+  color: var(--text-500);
+  cursor: pointer;
+}
+
+.auth-page .password-toggle svg {
+  display: block;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.auth-page .password-toggle:hover {
+  color: #d1d5db;
+}
+
+.auth-page .forgot-link {
+  margin-left: 0.25rem;
+  color: var(--secondary-700);
+  font-size: small;
+  font-weight: 300;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.auth-page .login-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 3.5rem;
+  padding: 0 1.5rem;
+  border: none;
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--background-50);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-page .login-button-text {
+  flex: 1;
+  text-align: left;
+}
+
+.auth-page .login-button-arrow {
+  flex-shrink: 0;
+}
+
+.auth-page .auth-error {
+  margin: 0;
+  color: #ef4444;
+}
+
+.auth-page .footer-links {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  margin-top: auto;
+}
+
+.auth-page .createacc p,
+.auth-page .copyright p {
+  margin: 0;
+}
+
+.auth-page .createacc {
+  color: var(--text-600);
+}
+
+.auth-page .createacc-link {
+  margin-left: 0.35rem;
+  color: var(--secondary-700);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.auth-page .copyright {
+  color: var(--text-500);
+  font-size: 0.875rem;
+}

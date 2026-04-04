@@ -1,6 +1,43 @@
 :root {
-  /* default to dark theme values */
-  --debug-outline: 0.3px dashed rgba(255, 0, 0, 0.3);
+  --debug-outline: none;
+
+  /* New canonical palette tokens */
+  /*
+  --text: #080c08;
+  --background: #f9fbf9;
+  --primary: #71a272;
+  --secondary: #c3a2b5;
+  --accent: #b8a994;*/
+
+  /* New gradient tokens */
+  --linearPrimarySecondary: linear-gradient(#42d769, #7ef19d);
+  --linearPrimaryAccent: linear-gradient(#42d769, #50fb7e);
+  --linearSecondaryAccent: linear-gradient(#7ef19d, #50fb7e);
+  --radialPrimarySecondary: radial-gradient(#42d769, #7ef19d);
+  --radialPrimaryAccent: radial-gradient(#42d769, #50fb7e);
+  --radialSecondaryAccent: radial-gradient(#7ef19d, #50fb7e);
+
+  /* Compatibility layer for existing app styles */
+  --color-text: var(--text);
+  --color-bg-body: var(--background);
+  --color-bg-body-gray: #e9efe7;
+  --color-bg-loginsec: #f2f6f1;
+  --color-primary: var(--primary);
+  --color-primary-dark: #4f7c50;
+  --color-secondary: var(--secondary);
+  --color-secondary-dark: #9a7f8f;
+  --color-accent: var(--accent);
+  --color-accent-dark: #8f806f;
+  --color-form-bg: #ffffff;
+  --color-border: #c9d7c9;
+  --color-img-border: #b4c4b3;
+  --color-placeholder: #7f8e7f;
+  --color-copyright: #6a776a;
+  --color-gray-darker: #1f2b1f;
+  --color-gray-darker-2: #e4ebe2;
+  --color-gray-dark: #3f4d3f;
+  --color-gray-light: #627062;
+  --color-gray-lighter: #2a352a;
 }
 
 * {
@@ -8,56 +45,201 @@
   margin: 0;
   padding: 0;
   outline: var(--debug-outline);
-
-  --color-form-bg: #1e1e1e;
-
-  --color-gray-light: #9ca3af;
-  --color-gray-lighter: #d1d5db;
-  --color-primary: #0df2f2;
-  --color-primary-dark: #0bc9c9;
-  --color-border: #3f3f46;
-  --color-img-border: #374151;
-  --color-placeholder: #6b7280;
-  --color-copyright: #4b5563;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --color-bg-body: #ffffff;
-    --color-bg-loginsec:#121212;
-    --color-bg-body-gray: #464242;
-    --color-text: #000000;
-    --color-form-bg: #f8f8f8;
-    --color-gray-darker: #1b1b1b;
-    --color-gray-dark: #4b5563;
-    --color-gray-light: #4b5563;
-    --color-gray-lighter: #9ca3af;
-    --color-border: #d1d5db;
-    --color-img-border: #9ca3af;
-    --color-copyright: #6b7280;
+
+    --text-50: #eef7f1;
+    --text-100: #dcefe2;
+    --text-200: #b9dfc6;
+    --text-300: #96cfa9;
+    --text-400: #73bf8c;
+    --text-500: #50af70;
+    --text-600: #408c59;
+    --text-700: #306943;
+    --text-800: #20462d;
+    --text-900: #102316;
+    --text-950: #08110b;
+
+    --background-50: #ecf9ee;
+    --background-100: #d9f2de;
+    --background-200: #b3e6bd;
+    --background-300: #8cd99c;
+    --background-400: #66cc7a;
+    --background-500: #40bf59;
+    --background-600: #339947;
+    --background-700: #267336;
+    --background-800: #194d24;
+    --background-900: #0d2612;
+    --background-950: #061309;
+
+    --primary-50: #eafbee;
+    --primary-100: #d5f6de;
+    --primary-200: #abedbd;
+    --primary-300: #81e49b;
+    --primary-400: #57db7a;
+    --primary-500: #2dd259;
+    --primary-600: #24a847;
+    --primary-700: #1b7e35;
+    --primary-800: #125424;
+    --primary-900: #092a12;
+    --primary-950: #041509;
+
+    --secondary-50: #e8fced;
+    --secondary-100: #d1fadc;
+    --secondary-200: #a3f5b9;
+    --secondary-300: #75f096;
+    --secondary-400: #47eb73;
+    --secondary-500: #19e650;
+    --secondary-600: #14b840;
+    --secondary-700: #0f8a30;
+    --secondary-800: #0a5c20;
+    --secondary-900: #052e10;
+    --secondary-950: #031708;
+
+    --accent-50: #e6feed;
+    --accent-100: #cdfeda;
+    --accent-200: #9bfdb5;
+    --accent-300: #69fc90;
+    --accent-400: #37fb6b;
+    --accent-500: #05fa46;
+    --accent-600: #04c838;
+    --accent-700: #03962a;
+    --accent-800: #02641c;
+    --accent-900: #01320e;
+    --accent-950: #011907;
+
+    --text: var(--text-950);
+    --background: var(--background-50);
+    --primary: var(--primary-500);
+    --secondary: var(--secondary-500);
+    --accent: var(--accent-500);
+
+/*
+    --color-text: var(--text);
+    --color-bg-body: var(--background);
+    --color-bg-body-gray: #e9efe7;
+    --color-bg-loginsec: #f2f6f1;
+    --color-primary: var(--primary);
+    --color-primary-dark: #4f7c50;
+    --color-secondary: var(--secondary);
+    --color-secondary-dark: #9a7f8f;
+    --color-accent: var(--accent);
+    --color-accent-dark: #8f806f;
+    --color-form-bg: #ffffff;
+    --color-border: #c9d7c9;
+    --color-img-border: #b4c4b3;
+    --color-placeholder: #7f8e7f;
+    --color-copyright: #6a776a;
+    --color-gray-darker: #1f2b1f;
+    --color-gray-darker-2: #e4ebe2;
+    --color-gray-dark: #3f4d3f;
+    --color-gray-light: #627062;
+    --color-gray-lighter: #2a352a;
+    */
   }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* re-assert dark values (same as defaults) in case of overrides) */
-    --color-bg-body: #0a0a0a;
-    --color-bg-loginsec:#121212;
-    --color-bg-body-gray: #464242;
-    --color-text: #ffffff;
-    --color-form-bg: #1e1e1e;
-    --color-gray-light: #9ca3af;
-    --color-gray-lighter: #d1d5db;
-    --color-border: #3f3f46;
-    --color-img-border: #374151;
-    --color-copyright: #4b5563; 
+
+    --text-50: #08110b;
+    --text-100: #102316;
+    --text-200: #20462d;
+    --text-300: #306943;
+    --text-400: #408c59;
+    --text-500: #50af70;
+    --text-600: #73bf8c;
+    --text-700: #96cfa9;
+    --text-800: #b9dfc6;
+    --text-900: #dcefe2;
+    --text-950: #eef7f1;
+
+    --background-50: #061309;
+    --background-100: #0d2612;
+    --background-200: #194d24;
+    --background-300: #267336;
+    --background-400: #339947;
+    --background-500: #40bf59;
+    --background-600: #66cc7a;
+    --background-700: #8cd99c;
+    --background-800: #b3e6bd;
+    --background-900: #d9f2de;
+    --background-950: #ecf9ee;
+
+    --primary-50: #041509;
+    --primary-100: #092a12;
+    --primary-200: #125424;
+    --primary-300: #1b7e35;
+    --primary-400: #24a847;
+    --primary-500: #2dd259;
+    --primary-600: #57db7a;
+    --primary-700: #81e49b;
+    --primary-800: #abedbd;
+    --primary-900: #d5f6de;
+    --primary-950: #eafbee;
+
+    --secondary-50: #031708;
+    --secondary-100: #052e10;
+    --secondary-200: #0a5c20;
+    --secondary-300: #0f8a30;
+    --secondary-400: #14b840;
+    --secondary-500: #19e650;
+    --secondary-600: #47eb73;
+    --secondary-700: #75f096;
+    --secondary-800: #a3f5b9;
+    --secondary-900: #d1fadc;
+    --secondary-950: #e8fced;
+
+    --accent-50: #011907;
+    --accent-100: #01320e;
+    --accent-200: #02641c;
+    --accent-300: #03962a;
+    --accent-400: #04c838;
+    --accent-500: #05fa46;
+    --accent-600: #37fb6b;
+    --accent-700: #69fc90;
+    --accent-800: #9bfdb5;
+    --accent-900: #cdfeda;
+    --accent-950: #e6feed;
+
+
+    --text: var(--text-950);
+    --background: var(--background-50);
+    --primary: var(--primary-500);
+    --secondary: var(--secondary-500);
+    --accent: var(--accent-500);
+
+/*
+    --color-text: var(--text);
+    --color-bg-body: var(--background);
+    --color-bg-body-gray: #0d130d;
+    --color-bg-loginsec: #101810;
+    --color-primary: var(--primary);
+    --color-primary-dark: #4e764e;
+    --color-secondary: var(--secondary);
+    --color-secondary-dark: #4f3242;
+    --color-accent: var(--accent);
+    --color-accent-dark: #5a4d3d;
+    --color-form-bg: #121b12;
+    --color-border: #2a3a2a;
+    --color-img-border: #314431;
+    --color-placeholder: #8c9a8c;
+    --color-copyright: #6f7d6f;
+    --color-gray-darker: #f3f7f3;
+    --color-gray-darker-2: #1a241a;
+    --color-gray-dark: #d8e0d8;
+    --color-gray-light: #a8b5a8;
+    --color-gray-lighter: #edf3ed;
+    */
   }
 }
 
 body {
-  background: linear-gradient(to bottom, var(--color-bg-body-gray), var(--color-bg-body));
-    color: var(--color-text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
+  background: linear-gradient(to bottom, var(--background-100), var(--background));
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
 }
 

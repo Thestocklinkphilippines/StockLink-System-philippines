@@ -49,7 +49,7 @@ export default function Sidebar(){
       </div>
 
       <nav className="nav-menu" aria-label="Primary">
-        <NavLink to="/dashboard/overview" className={({isActive})=> `nav-item ${isActive ? 'active' : ''}`}>Dashboard</NavLink>
+        <NavLink to="/dashboard/overview" className={({isActive})=> `nav-item ${isActive ? 'active' : ''}`}>Overview</NavLink>
         <NavLink to="/dashboard/schedules" className={({isActive})=> `nav-item ${isActive ? 'active' : ''}`}>Schedule Management</NavLink>
         <NavLink to="/dashboard/alerts" className={({isActive})=> `nav-item ${isActive ? 'active' : ''}`}>Notifications &amp; Alarms</NavLink>
         <NavLink to="/dashboard/logs" className={({isActive})=> `nav-item ${isActive ? 'active' : ''}`}>Feeding Logs/History</NavLink>

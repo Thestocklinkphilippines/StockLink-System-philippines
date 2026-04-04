@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: color-mix(in srgb, var(--color-bg-body) 62%, transparent);
+  background: color-mix(in srgb, var(--background) 62%, transparent);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -13,8 +13,8 @@
 .schedule-modal {
   width: min(100%, 34rem);
   border-radius: 1rem;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
-  background: color-mix(in srgb, var(--color-bg-loginsec) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--secondary) 30%, transparent);
+  background: color-mix(in srgb, var(--background-100) 84%, var(--accent) 16%);
   box-shadow: 0 20px 40px color-mix(in srgb, #000000 38%, transparent);
   padding: 1.2rem;
 }
@@ -27,7 +27,7 @@
 }
 
 .schedule-modal-head h3 {
-  color: var(--color-gray-lighter);
+  color: var(--text);
   font-size: 1.2rem;
   font-weight: 700;
 }
@@ -36,15 +36,15 @@
   width: 2rem;
   height: 2rem;
   border-radius: 9999px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--secondary) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--secondary-700);
   cursor: pointer;
 }
 
 .schedule-modal-subtitle {
   margin-top: 0.5rem;
-  color: var(--color-gray-light);
+  color: var(--text-700);
   font-size: 0.9rem;
 }
 
@@ -61,23 +61,23 @@
 
 .schedule-field span {
   font-size: 0.8rem;
-  color: var(--color-gray-light);
+  color: var(--text-700);
 }
 
 .schedule-field input {
   width: 100%;
   height: 2.8rem;
   border-radius: 0.75rem;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-form-bg) 92%, transparent);
-  color: var(--color-gray-lighter);
+  border: 1px solid var(--background-300);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  color: var(--text);
   padding: 0 0.8rem;
 }
 
 .schedule-field input:focus {
   outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+  border-color: var(--secondary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--secondary) 24%, transparent);
 }
 
 .schedule-field-grid {
@@ -93,7 +93,7 @@
 
 .schedule-days-label {
   font-size: 0.8rem;
-  color: var(--color-gray-light);
+  color: var(--text-700);
 }
 
 .schedule-days-grid {
@@ -105,9 +105,9 @@
 .schedule-day-btn {
   padding: 0.6rem 0.4rem;
   border-radius: 0.5rem;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-form-bg) 92%, transparent);
-  color: var(--color-gray-lighter);
+  border: 1px solid var(--background-300);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  color: var(--text);
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
@@ -115,40 +115,40 @@
 }
 
 .schedule-day-btn:hover:not(.selected) {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-  color: var(--color-primary);
+  border-color: var(--secondary);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--secondary-700);
 }
 
 .schedule-day-btn.selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-bg-body);
+  border-color: var(--secondary);
+  background: var(--secondary);
+  color: var(--background);
 }
 
 .schedule-day-btn:focus {
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .schedule-enabled-row {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  color: var(--color-gray-lighter);
+  color: var(--text);
 }
 
 .schedule-enabled-row input {
-  accent-color: var(--color-primary);
+  accent-color: var(--secondary);
 }
 
 .schedule-day-preview {
-  color: var(--color-gray-light);
+  color: var(--text-700);
   font-size: 0.85rem;
 }
 
 .schedule-day-preview strong {
-  color: var(--color-primary);
+  color: var(--secondary-700);
 }
 
 .schedule-modal-error {
@@ -176,13 +176,13 @@
 }
 
 .schedule-btn-ghost {
-  color: var(--color-gray-lighter);
-  background: color-mix(in srgb, var(--color-gray-light) 16%, transparent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--text-700) 16%, transparent);
 }
 
 .schedule-btn-primary {
-  color: var(--color-bg-body);
-  background: var(--color-primary);
+  color: var(--background);
+  background: var(--secondary);
 }
 
 .schedule-btn:disabled {
