@@ -52,3 +52,14 @@
   font-size: 0.875rem;
   cursor: pointer;
 }
+
+@media (max-width: 860px) {
+  .auth-page-login .sidepanel,
+  .auth-page-login .login-panel {
+    min-height: 0;
+  }
+
+  .auth-page-login .main-content {
+    align-items: stretch;
+  }
+}

@@ -73,6 +73,16 @@
   padding: 0 0.7rem;
 }
 
+.settings-textarea {
+  width: 100%;
+  border-radius: 0.7rem;
+  border: 1px solid var(--background-300);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  color: var(--text);
+  padding: 0.7rem;
+  resize: vertical;
+}
+
 .settings-save-btn {
   margin-top: 0.7rem;
   height: 2.4rem;
@@ -88,6 +98,19 @@
 .settings-save-btn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.settings-button-row {
+  margin-top: 0.7rem;
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.settings-outline-btn {
+  border: 1px solid var(--secondary);
+  background: transparent;
+  color: var(--secondary);
 }
 
 .settings-time-preview {
@@ -117,6 +140,63 @@
   font-size: 0.8rem;
   color: var(--text);
   word-break: break-word;
+}
+
+.settings-recipient-add-row {
+  margin-top: 0.55rem;
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.settings-recipient-add-row .settings-input {
+  margin: 0;
+}
+
+.settings-recipient-add-row .settings-save-btn {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.settings-recipient-list {
+  margin-top: 0.7rem;
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.settings-recipient-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--secondary) 24%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.settings-recipient-item span {
+  font-size: 0.78rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.settings-recipient-remove {
+  border: 1px solid color-mix(in srgb, #ef4444 70%, transparent);
+  background: transparent;
+  color: #ef4444;
+  border-radius: 9999px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.settings-recipient-remove:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .settings-success {
@@ -158,5 +238,10 @@
 @media (max-width: 900px) {
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-recipient-add-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

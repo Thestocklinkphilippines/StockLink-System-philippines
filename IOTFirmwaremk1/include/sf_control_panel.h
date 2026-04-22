@@ -1,0 +1,27 @@
+#ifndef SF_CONTROL_PANEL_H
+#define SF_CONTROL_PANEL_H
+
+#include <ArduinoJson.h>
+#include <LiquidCrystal_I2C.h>
+
+enum ControlPanelState {
+  STATE_HOME,
+  STATE_MENU,
+  STATE_MANUAL_FEED_INPUT,
+  STATE_MANUAL_FEED_CONFIRM,
+  STATE_FEEDING_PROGRESS,
+  STATE_SCHEDULE_LIST,
+  STATE_SCHEDULE_DETAIL,
+  STATE_SCHEDULE_AMOUNT_INPUT,
+  STATE_STATUS_VIEW,
+  STATE_ALERTS_LIST,
+  STATE_ALERT_ACK,
+  STATE_SETTINGS_MENU,
+  STATE_SETTINGS_THRESHOLD,
+  STATE_SETTINGS_TIME
+};
+
+void initControlPanel(LiquidCrystal_I2C* lcd);
+void updateControlPanel(JsonVariant cfg, JsonArray schedules);
+
+#endif

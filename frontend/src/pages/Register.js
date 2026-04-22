@@ -7,6 +7,7 @@ import '../styles/register.css'
 
 export default function Register(){
   const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
@@ -58,7 +59,7 @@ export default function Register(){
   async function submit(e){
     e.preventDefault()
     setError('')
-    const res = await api.postJSON('/api/auth/register/', { username, password })
+    const res = await api.postJSON('/api/auth/register/', { username, email, password })
     if (res.ok) {
       navigate('/dashboard/overview')
     } else {
@@ -132,7 +133,14 @@ export default function Register(){
 
             <div className="email-field">
               <p>Email Address</p>
-              <input type="text" id="email" name="email" required/>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+              />
             </div>
 
             <div className="password-field">

@@ -4,36 +4,10 @@ import { getPollingIntervalMs } from '../pollingConfig'
 import '../styles/schedules.css'
 import AddScheduleModal from '../components/AddScheduleModal'
 
-function parseDispensedKg(logEntry){
-  const payload = logEntry && typeof logEntry.payload === 'object' ? logEntry.payload : {}
-  const candidates = [
-    payload.dispensed_kg,
-    payload.feeding_amount_kg,
-    payload.amount_kg,
-    payload.dispensedKg,
-    payload.amountKg,
-  ]
-
-  for (const value of candidates) {
-    const numeric = Number(value)
-    if (Number.isFinite(numeric) && numeric > 0) return numeric
-  }
-
-  return 0
-}
-
-function isSameLocalDay(a, b){
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
-}
-
 export default function Schedules(){
   const pollingIntervalMs = getPollingIntervalMs()
   const [schedules, setSchedules] = useState([])
-  const [logs, setLogs] = useState([])
+  const [deviceConfig, setDeviceConfig] = useState(null)
   const [loading, setLoading] = useState(true)
   const [deviceId, setDeviceId] = useState('esp32-001')
   const [showAddModal, setShowAddModal] = useState(false)
@@ -41,6 +15,11 @@ export default function Schedules(){
   const [editingSchedule, setEditingSchedule] = useState(null)
   const [togglingMap, setTogglingMap] = useState({})
   const [scheduleFilter, setScheduleFilter] = useState('all')
+  const [feedNowAmountKg, setFeedNowAmountKg] = useState('0.25')
+  const [feedNowCommands, setFeedNowCommands] = useState([])
+  const [feedNowLoading, setFeedNowLoading] = useState(false)
+  const [feedNowMessage, setFeedNowMessage] = useState('')
+  const [feedNowError, setFeedNowError] = useState('')
 
   useEffect(()=>{
     let isMounted = true
@@ -51,16 +30,20 @@ export default function Schedules(){
         if (!isMounted) return
         setDeviceId(active)
 
-        const [schedulesRes, logsRes] = await Promise.all([
+        const [schedulesRes, logsRes, feedNowRes] = await Promise.all([
           api.getJSON(`/api/device/${active}/schedules/`),
-          api.getJSON(`/api/device/${active}/logs/`),
+          api.getJSON(`/api/device/${active}/config/`),
+          api.getJSON(`/api/device/${active}/feed-now/`),
         ])
 
         if (isMounted && schedulesRes.ok){
           setSchedules(schedulesRes.body || [])
         }
         if (isMounted && logsRes.ok) {
-          setLogs(logsRes.body || [])
+          setDeviceConfig(logsRes.body || null)
+        }
+        if (isMounted && feedNowRes.ok) {
+          setFeedNowCommands(feedNowRes.body || [])
         }
       }catch(err){
         if (isMounted) console.error('Failed to load schedules', err)
@@ -78,6 +61,40 @@ export default function Schedules(){
       clearInterval(timer)
     }
   },[pollingIntervalMs])
+
+  async function submitFeedNowCommand(){
+    const amount = Number(feedNowAmountKg)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFeedNowError('Feed amount must be greater than 0.')
+      setFeedNowMessage('')
+      return
+    }
+
+    setFeedNowLoading(true)
+    setFeedNowMessage('')
+    setFeedNowError('')
+    try {
+      const res = await api.postJSON(`/api/device/${deviceId}/feed-now/`, { amount_kg: amount })
+      if (res.ok) {
+        setFeedNowCommands(prev => [res.body, ...prev].slice(0, 20))
+        setFeedNowMessage(`Feed-now command queued: ${amount.toFixed(2)} kg`)
+      } else {
+        const detail = res.body && (res.body.detail || res.body.amount_kg || JSON.stringify(res.body))
+        setFeedNowError(detail || 'Failed to queue feed-now command.')
+      }
+    } catch (err) {
+      setFeedNowError('Failed to queue feed-now command.')
+    } finally {
+      setFeedNowLoading(false)
+    }
+  }
+
+  function formatFeedNowStatus(status){
+    if (status === 'pending') return 'Pending'
+    if (status === 'executed') return 'Executed'
+    if (status === 'failed') return 'Failed'
+    return status || 'Unknown'
+  }
 
   async function createSchedule(payload){
     setIsSavingSchedule(true)
@@ -192,19 +209,15 @@ export default function Schedules(){
     return true
   })
 
-  const today = new Date()
-  const todaysTotalKg = logs.reduce((sum, logEntry) => {
-    const ts = new Date(logEntry.timestamp)
-    if (Number.isNaN(ts.getTime()) || !isSameLocalDay(ts, today)) return sum
-    return sum + parseDispensedKg(logEntry)
-  }, 0)
+  const todaysTotalKg = Number(deviceConfig?.config?.total_feeds_today_kg ?? deviceConfig?.total_feeds_today_kg ?? 0)
+  const displayTotalKg = Number.isFinite(todaysTotalKg) ? todaysTotalKg : 0
 
   return (
     <div className="schedules-page">
       <div className="schedules-stats">
         <div className="stat-card">
           <p className="stat-label">Today's Total</p>
-          <p className="stat-value">{todaysTotalKg.toFixed(2)}kg</p>
+          <p className="stat-value">{displayTotalKg.toFixed(2)}kg</p>
         </div>
         <div className="stat-card">
           <p className="stat-label">Active Schedules</p>
@@ -301,11 +314,43 @@ export default function Schedules(){
         )}
 
         <div className="schedules-feed-now">
-          <div>
+          <div className="schedules-feed-now-copy">
             <h4>Need to feed now?</h4>
-            <p>Dispense a single portion instantly</p>
+            <p>Queue an immediate feed command for this device.</p>
+            <div className="feed-now-controls">
+              <label htmlFor="feed-now-amount" className="feed-now-label">Amount (kg)</label>
+              <input
+                id="feed-now-amount"
+                className="feed-now-input"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={feedNowAmountKg}
+                onChange={e => setFeedNowAmountKg(e.target.value)}
+                disabled={feedNowLoading}
+              />
+              <button className="feed-now-btn" onClick={submitFeedNowCommand} disabled={feedNowLoading || !feedNowAmountKg}>
+                {feedNowLoading ? 'Queueing...' : 'Feed Now'}
+              </button>
+            </div>
+            {feedNowMessage ? <p className="feed-now-message">{feedNowMessage}</p> : null}
+            {feedNowError ? <p className="feed-now-error">{feedNowError}</p> : null}
           </div>
-          <button className="feed-now-btn">Feed Now</button>
+          <div className="feed-now-history">
+            <h5>Recent Feed Commands</h5>
+            {feedNowCommands.length === 0 ? (
+              <p className="feed-now-empty">No feed-now commands yet.</p>
+            ) : (
+              <ul>
+                {feedNowCommands.slice(0, 5).map(cmd => (
+                  <li key={cmd.id}>
+                    <span>{Number(cmd.amount_kg).toFixed(2)}kg</span>
+                    <span className={`feed-now-status feed-now-status-${cmd.status}`}>{formatFeedNowStatus(cmd.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </main>
 

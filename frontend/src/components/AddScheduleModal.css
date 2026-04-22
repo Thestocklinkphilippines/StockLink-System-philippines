@@ -80,6 +80,11 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--secondary) 24%, transparent);
 }
 
+.schedule-field input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 0.85;
+  cursor: pointer;
+}
+
 .schedule-field-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -193,5 +198,12 @@
 @media (max-width: 720px) {
   .schedule-field-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .schedule-field input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.85) brightness(1.35) contrast(1.05);
+    opacity: 1;
   }
 }

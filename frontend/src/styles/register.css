@@ -73,3 +73,14 @@
   text-decoration-thickness: 2px;
   text-underline-offset: 4px;
 }
+
+@media (max-width: 860px) {
+  .auth-page-register .sidepanel,
+  .auth-page-register .register-panel {
+    min-height: 0;
+  }
+
+  .auth-page-register .main-content {
+    align-items: stretch;
+  }
+}

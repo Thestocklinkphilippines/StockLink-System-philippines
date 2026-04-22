@@ -41,6 +41,16 @@ def _get_effective_thresholds():
     }
 
 
+def _get_effective_alert_thresholds():
+    settings_obj = SystemSettings.get_solo()
+    return {
+        'alert_feeder_low_threshold_pct': settings_obj.alert_feeder_low_threshold_pct,
+        'alert_feeder_high_threshold_pct': settings_obj.alert_feeder_high_threshold_pct,
+        'alert_water_low_threshold_pct': settings_obj.alert_water_low_threshold_pct,
+        'alert_water_high_threshold_pct': settings_obj.alert_water_high_threshold_pct,
+    }
+
+
 @receiver(post_save, sender=Schedule)
 @receiver(post_delete, sender=Schedule)
 def refresh_device_config_after_schedule_change(sender, instance, **kwargs):
@@ -52,6 +62,7 @@ def refresh_device_config_after_schedule_change(sender, instance, **kwargs):
     cfg.config['system_timezone'] = SystemSettings.get_timezone_name()
     cfg.config.update(_get_effective_max_capacity())
     cfg.config.update(_get_effective_thresholds())
+    cfg.config.update(_get_effective_alert_thresholds())
     cfg.updated_by = 'server'
     cfg.last_updated = timezone.now()
     cfg.save(update_fields=['config', 'updated_by', 'last_updated'])

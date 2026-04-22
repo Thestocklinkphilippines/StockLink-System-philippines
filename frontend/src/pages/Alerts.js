@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api'
 import { getPollingIntervalMs } from '../pollingConfig'
+import { formatDateTime } from '../utils/datetime'
 import '../styles/alerts.css'
+
+function humanizeAlertType(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return 'Unknown Alert'
+
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map(token => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+    .join(' ')
+}
 
 export default function Alerts(){
   const pollingIntervalMs = getPollingIntervalMs()
@@ -36,10 +49,10 @@ export default function Alerts(){
         {alerts.length===0 ? <div className="alerts-empty">No alerts.</div> : (
           <ul className="alerts-list">
             {alerts.map(a=> (
-              <li key={a.id} className="alerts-item">
-                <span className="alerts-item-type">{a.alert_type}</span>
-                <span className="alerts-item-time">{a.timestamp}</span>
-                <span className={`alerts-item-status ${a.resolved ? 'ok' : 'warn'}`}>{a.resolved ? 'Resolved' : 'Pending'}</span>
+              <li key={a.id} className={`alerts-item ${a.resolved ? 'alerts-item-resolved' : 'alerts-item-active'}`}>
+                <span className="alerts-item-type">{humanizeAlertType(a.alert_type)}</span>
+                <span className="alerts-item-time">{formatDateTime(a.timestamp, 'Unknown time')}</span>
+                <span className={`alerts-item-status ${a.resolved ? 'ok' : 'warn'}`}>{a.resolved ? 'Resolved' : 'Active'}</span>
               </li>
             ))}
           </ul>

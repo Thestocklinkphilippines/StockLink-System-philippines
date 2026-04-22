@@ -54,6 +54,14 @@ class SystemSettings(models.Model):
     feeder_high_threshold_pct = models.FloatField(default=80.0)
     water_low_threshold_pct = models.FloatField(default=20.0)
     water_high_threshold_pct = models.FloatField(default=80.0)
+    alert_feeder_low_threshold_pct = models.FloatField(default=20.0)
+    alert_feeder_high_threshold_pct = models.FloatField(default=80.0)
+    alert_water_low_threshold_pct = models.FloatField(default=20.0)
+    alert_water_high_threshold_pct = models.FloatField(default=80.0)
+    important_log_keywords = models.JSONField(default=list)
+    alert_recipients = models.JSONField(default=list)
+    smtp_email_user = models.CharField(max_length=255, blank=True, default='')
+    smtp_email_password = models.CharField(max_length=255, blank=True, default='')
     max_feeds_capacity_updated_at = models.DateTimeField(default=django_timezone.now)
     max_feeds_capacity_updated_by = models.CharField(max_length=16, default='server')
     updated_at = models.DateTimeField(auto_now=True)
@@ -72,6 +80,14 @@ class SystemSettings(models.Model):
                 'feeder_high_threshold_pct': 80.0,
                 'water_low_threshold_pct': 20.0,
                 'water_high_threshold_pct': 80.0,
+                'alert_feeder_low_threshold_pct': 20.0,
+                'alert_feeder_high_threshold_pct': 80.0,
+                'alert_water_low_threshold_pct': 20.0,
+                'alert_water_high_threshold_pct': 80.0,
+                'important_log_keywords': ['critical', 'error', 'fault', 'warning', 'alert', 'offline', 'fail'],
+                'alert_recipients': [],
+                'smtp_email_user': '',
+                'smtp_email_password': '',
                 'max_feeds_capacity_updated_at': django_timezone.now(),
                 'max_feeds_capacity_updated_by': 'server',
             },
@@ -93,3 +109,29 @@ class DeviceSensorState(models.Model):
 
     def __str__(self):
         return f"{self.device.device_id}: Feeder {self.feeder_level_pct:.1f}%, Water {self.water_level_pct:.1f}%"
+
+
+class FeedNowCommand(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_EXECUTED = 'executed'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_EXECUTED, 'Executed'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='feed_now_commands')
+    amount_kg = models.FloatField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    requested_by = models.CharField(max_length=150, blank=True, default='')
+    executed_at = models.DateTimeField(null=True, blank=True)
+    failure_reason = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f"FeedNow {self.device.device_id} {self.amount_kg}kg [{self.status}]"

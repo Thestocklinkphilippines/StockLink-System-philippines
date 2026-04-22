@@ -2,25 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
 import { getPollingIntervalMs } from '../pollingConfig'
+import { formatDateTime } from '../utils/datetime'
 import '../styles/overview.css'
-
-function parseDispensedKg(logEntry) {
-  const payload = logEntry && typeof logEntry.payload === 'object' ? logEntry.payload : {}
-  const candidates = [
-    payload.dispensed_kg,
-    payload.feeding_amount_kg,
-    payload.amount_kg,
-    payload.dispensedKg,
-    payload.amountKg,
-  ]
-
-  for (const value of candidates) {
-    const numeric = Number(value)
-    if (Number.isFinite(numeric) && numeric > 0) return numeric
-  }
-
-  return 0
-}
 
 export default function Overview(){
   const pollingIntervalMs = getPollingIntervalMs()
@@ -87,10 +70,12 @@ export default function Overview(){
   const feederStatus = getStatusClass(feederLevelPct, feederLowThresh, feederHighThresh)
   const waterStatus = getStatusClass(waterLevelPct, waterLowThresh, waterHighThresh)
 
-  const totalDispensedKg = logs.reduce((sum, logEntry) => sum + parseDispensedKg(logEntry), 0)
+  const totalDispensedKg = Number(config.total_feeds_today_kg ?? 0)
+  const displayTotalDispensedKg = Number.isFinite(totalDispensedKg) ? totalDispensedKg : 0
   const pendingAlerts = alerts.filter(alertItem => !alertItem.resolved)
   const heartbeatLogs = logs.filter(logEntry => String(logEntry.log_type || '').toLowerCase() === 'heartbeat')
   const latestHeartbeat = heartbeatLogs[0]
+  const heartbeatPulseKey = latestHeartbeat ? String(latestHeartbeat.timestamp || latestHeartbeat.last_updated || latestHeartbeat.id || '') : 'none'
   const latestAlert = alerts[0]
 
   return (
@@ -104,7 +89,7 @@ export default function Overview(){
           <div className="overview-grid overview-stats-grid">
             <article className="overview-stat-card">
               <h4>Last updated</h4>
-              <p>{cfg.last_updated}</p>
+              <p>{formatDateTime(cfg.last_updated)}</p>
             </article>
             <article className="overview-stat-card">
               <h4>Updated by</h4>
@@ -116,7 +101,7 @@ export default function Overview(){
             </article>
             <article className="overview-stat-card">
               <h4>Total Dispensed</h4>
-              <p>{totalDispensedKg.toFixed(3)}kg</p>
+              <p>{displayTotalDispensedKg.toFixed(3)}kg</p>
             </article>
           </div>
 
@@ -212,7 +197,7 @@ export default function Overview(){
               </div>
             </div>
             <p className="overview-side-note">
-              {latestAlert ? `Latest: ${latestAlert.alert_type} at ${new Date(latestAlert.timestamp).toLocaleString()}` : 'No alerts recorded yet.'}
+              {latestAlert ? `Latest: ${latestAlert.alert_type} at ${formatDateTime(latestAlert.timestamp, 'Unknown time')}` : 'No alerts recorded yet.'}
             </p>
           </article>
 
@@ -227,12 +212,16 @@ export default function Overview(){
                 <strong className="overview-side-kpi">{logs.length}</strong>
               </div>
               <div>
-                <span className="overview-side-kpi-label">Heartbeats</span>
-                <strong className="overview-side-kpi">{heartbeatLogs.length}</strong>
+                <span className="overview-side-kpi-label">Heartbeat</span>
+                {latestHeartbeat ? (
+                  <strong key={heartbeatPulseKey} className="overview-side-kpi overview-heartbeat-pulse">Beat</strong>
+                ) : (
+                  <strong className="overview-side-kpi overview-heartbeat-idle">No Signal</strong>
+                )}
               </div>
             </div>
             <p className="overview-side-note">
-              {latestHeartbeat ? `Latest heartbeat: ${new Date(latestHeartbeat.timestamp).toLocaleString()}` : 'No heartbeat logs yet.'}
+              {latestHeartbeat ? `Latest heartbeat: ${formatDateTime(latestHeartbeat.timestamp, 'Unknown time')}` : 'No heartbeat logs yet.'}
             </p>
           </article>
         </aside>

@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from .models import Device, DeviceConfig, Alert, Log, DeviceSensorState
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
+from .models import Device, DeviceConfig, Alert, Log, DeviceSensorState, FeedNowCommand
 from zoneinfo import ZoneInfo
 
 from .models import Schedule
@@ -42,6 +44,13 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
             'feeder_high_threshold_pct',
             'water_low_threshold_pct',
             'water_high_threshold_pct',
+            'alert_feeder_low_threshold_pct',
+            'alert_feeder_high_threshold_pct',
+            'alert_water_low_threshold_pct',
+            'alert_water_high_threshold_pct',
+            'important_log_keywords',
+            'alert_recipients',
+            'smtp_email_user',
             'max_feeds_capacity_updated_at',
             'max_feeds_capacity_updated_by',
             'updated_at',
@@ -82,9 +91,97 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Water high threshold must be between 0 and 100.')
         return value
 
+    def validate_alert_feeder_low_threshold_pct(self, value):
+        if value < 0 or value > 100:
+            raise serializers.ValidationError('Alert feeder low threshold must be between 0 and 100.')
+        return value
+
+    def validate_alert_feeder_high_threshold_pct(self, value):
+        if value < 0 or value > 100:
+            raise serializers.ValidationError('Alert feeder high threshold must be between 0 and 100.')
+        return value
+
+    def validate_alert_water_low_threshold_pct(self, value):
+        if value < 0 or value > 100:
+            raise serializers.ValidationError('Alert water low threshold must be between 0 and 100.')
+        return value
+
+    def validate_alert_water_high_threshold_pct(self, value):
+        if value < 0 or value > 100:
+            raise serializers.ValidationError('Alert water high threshold must be between 0 and 100.')
+        return value
+
+    def validate_important_log_keywords(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError('Important log keywords must be a list.')
+
+        normalized = []
+        for item in value:
+            if not isinstance(item, str):
+                raise serializers.ValidationError('Each keyword must be a string.')
+            token = item.strip().lower()
+            if not token:
+                continue
+            normalized.append(token)
+
+        # Preserve order while removing duplicates.
+        deduped = list(dict.fromkeys(normalized))
+        if len(deduped) > 50:
+            raise serializers.ValidationError('Maximum of 50 keywords allowed.')
+        return deduped
+
+    def validate_alert_recipients(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError('Alert recipients must be a list.')
+
+        normalized = []
+        for item in value:
+            if not isinstance(item, str):
+                raise serializers.ValidationError('Each recipient must be an email string.')
+            email = item.strip().lower()
+            if not email:
+                continue
+            try:
+                validate_email(email)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(f'Invalid recipient email: {email}') from exc
+            normalized.append(email)
+
+        deduped = list(dict.fromkeys(normalized))
+        if len(deduped) > 100:
+            raise serializers.ValidationError('Maximum of 100 alert recipients allowed.')
+        return deduped
+
+    def validate_smtp_email_user(self, value):
+        return (value or '').strip()
+
 
 class DeviceSensorStateSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceSensorState
         fields = ['feeder_level_pct', 'water_level_pct', 'last_reported_at', 'updated_at']
         read_only_fields = ['updated_at']
+
+
+class FeedNowCommandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedNowCommand
+        fields = [
+            'id',
+            'device',
+            'amount_kg',
+            'status',
+            'created_at',
+            'updated_at',
+            'requested_by',
+            'executed_at',
+            'failure_reason',
+        ]
+        read_only_fields = ['id', 'device', 'status', 'created_at', 'updated_at', 'requested_by', 'executed_at', 'failure_reason']
+
+    def validate_amount_kg(self, value):
+        if value is None:
+            raise serializers.ValidationError('amount_kg is required.')
+        if value <= 0:
+            raise serializers.ValidationError('amount_kg must be greater than 0.')
+        return value

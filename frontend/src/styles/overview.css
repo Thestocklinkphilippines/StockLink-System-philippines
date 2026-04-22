@@ -237,6 +237,45 @@
   color: #fca5a5;
 }
 
+.overview-heartbeat-pulse {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.1rem 0.55rem;
+  color: #fecaca;
+  border: 1px solid color-mix(in srgb, #ef4444 55%, transparent);
+  background: color-mix(in srgb, #ef4444 32%, transparent);
+  animation: heartbeatPulseFade 15s ease-out forwards;
+}
+
+.overview-heartbeat-idle {
+  color: var(--text-700);
+}
+
+@keyframes heartbeatPulseFade {
+  0% {
+    color: #ffe4e6;
+    border-color: color-mix(in srgb, #ef4444 95%, transparent);
+    background: color-mix(in srgb, #ef4444 52%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, #ef4444 60%, transparent);
+    transform: scale(1);
+  }
+  6% {
+    transform: scale(1.05);
+  }
+  12% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px color-mix(in srgb, #ef4444 0%, transparent);
+  }
+  100% {
+    color: var(--text-700);
+    border-color: color-mix(in srgb, #ef4444 20%, transparent);
+    background: color-mix(in srgb, #ef4444 8%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, #ef4444 0%, transparent);
+    transform: scale(1);
+  }
+}
+
 .overview-side-note {
   margin-top: 0.65rem;
   font-size: 0.76rem;

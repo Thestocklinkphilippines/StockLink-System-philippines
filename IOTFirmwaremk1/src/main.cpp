@@ -1,11 +1,13 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
 
 #include "sf_actuators.h"
 #include "sf_config.h"
+#include "sf_control_panel.h"
 #include "sf_debug.h"
 #include "sf_globals.h"
 #include "sf_network.h"
@@ -13,7 +15,11 @@
 #include "sf_scheduler.h"
 #include "sf_sensors.h"
 #include "sf_serial.h"
+#include "sf_simulation.h"
 #include "sf_storage.h"
+#include "sf_utils.h"
+
+static LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, LCD_COLS, LCD_ROWS);
 
 void setupPins() {
   pinMode(PIN_FEEDER_TRIG, OUTPUT);
@@ -26,9 +32,12 @@ void setupPins() {
   pinMode(PIN_BUZZER, OUTPUT);
   pinMode(PIN_MAINS_SENSE_ADC, INPUT);
 
-  digitalWrite(PIN_FEED_MOTOR, LOW);
-  digitalWrite(PIN_WATER_SOLENOID, LOW);
+  setWaterSolenoidEnabled(false);
   digitalWrite(PIN_BUZZER, LOW);
+  noTone(PIN_BUZZER);
+  setFeedMotorEnabled(false);
+  LOG_INFO("Feed motor polarity activeHigh=%d", FEED_MOTOR_ACTIVE_HIGH ? 1 : 0);
+  LOG_INFO("Water solenoid polarity activeHigh=%d", WATER_SOLENOID_ACTIVE_HIGH ? 1 : 0);
 
   analogReadResolution(12);
   LOG_INFO("Pins initialized");
@@ -53,14 +62,35 @@ void setup() {
   delay(1200);
   LOG_INFO("Smart feeder booting");
   LOG_INFO("Build mode simulation=%d verbose=%d", SF_SIMULATION_MODE ? 1 : 0, SF_VERBOSE_SERIAL ? 1 : 0);
+  LOG_INFO("Sim toggles feederSensor=%d waterSensor=%d feedMotor=%d refill=%d mains=%d",
+           SF_SIMULATE_FEEDER_LEVEL_SENSOR,
+           SF_SIMULATE_WATER_LEVEL_SENSOR,
+           SF_SIMULATE_FEED_MOTOR,
+           SF_SIMULATE_WATER_REFILL,
+           SF_SIMULATE_MAINS_INPUT);
 
   setupPins();
   Wire.begin(PIN_LCD_SDA, PIN_LCD_SCL);
   LOG_INFO("I2C initialized SDA=%d SCL=%d", PIN_LCD_SDA, PIN_LCD_SCL);
 
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Smart Feeder MK1");
+  lcd.setCursor(0, 1);
+  lcd.print("LCD test: ONLINE");
+  lcd.setCursor(0, 2);
+  lcd.print("SDA=21 SCL=22");
+  lcd.setCursor(0, 3);
+  lcd.print("Addr 0x27 20x4");
+  LOG_INFO("LCD initialized addr=0x%02X cols=%d rows=%d", LCD_I2C_ADDRESS, LCD_COLS, LCD_ROWS);
+  initControlPanel(&lcd);
+
   connectWiFi();
   setupTime();
   ensureLocalDefaults();
+  reloadKeypadCalibration();
 
   state.lastSyncMs = millis();
   state.lastScheduleCheckMs = millis();
@@ -81,7 +111,15 @@ void setup() {
 void loop() {
   unsigned long nowMs = millis();
 
+  // Safety guard: keep motor output in OFF state unless a dispense routine is actively running.
+  setFeedMotorEnabled(false);
+
   handleSerialCommands();
+
+  if (gSerialConsoleExclusive) {
+    delay(20);
+    return;
+  }
 
   if (WiFi.status() != WL_CONNECTED) {
     if (nowMs - state.lastWiFiReconnectAttemptMs >= WIFI_RECONNECT_INTERVAL_MS) {
@@ -96,7 +134,7 @@ void loop() {
     handlePowerFailMonitoring();
   }
 
-  if (SF_ENABLE_KEYPAD_INPUT && nowMs - state.lastKeypadPollMs >= KEYPAD_POLL_INTERVAL_MS) {
+  if (isKeypadInputEnabled() && nowMs - state.lastKeypadPollMs >= KEYPAD_POLL_INTERVAL_MS) {
     state.lastKeypadPollMs = nowMs;
     pollKeypad();
   }
@@ -113,18 +151,30 @@ void loop() {
     cachedCfgStr = loadLocalConfig();
   }
 
+  bool doScheduleCheck = (nowMs - state.lastScheduleCheckMs >= SCHEDULE_CHECK_INTERVAL_MS);
+  if (doScheduleCheck) {
+    // Ensure device-owned daily total fields stay current by date rollover.
+    ensureDailyFeedTotalForToday();
+  }
+
   String cfgStr = cachedCfgStr;
-  static StaticJsonDocument<3072> cfgDoc;
+  static DynamicJsonDocument cfgDoc(8192);
   cfgDoc.clear();
   DeserializationError cfgErr = deserializeJson(cfgDoc, cfgStr);
   if (cfgErr) {
-    LOG_ERROR("Config JSON parse failed; using empty defaults");
+    LOG_ERROR("Config JSON parse failed: %s (bytes=%u); using empty defaults",
+              cfgErr.c_str(),
+              (unsigned int)cfgStr.length());
     cfgDoc.clear();
   }
   JsonVariant cfg = cfgDoc.as<JsonVariant>();
   JsonArray schedules = cfg["schedules"].as<JsonArray>();
 
-  if (nowMs - state.lastScheduleCheckMs >= SCHEDULE_CHECK_INTERVAL_MS) {
+  updateControlPanel(cfg, schedules);
+
+  processFeedNowCommand(cfg);
+
+  if (doScheduleCheck) {
     state.lastScheduleCheckMs = nowMs;
     checkLowFeedPrediction(schedules, cfg);
     checkSchedulesAndExecute(schedules, cfg);
@@ -141,6 +191,9 @@ void loop() {
     hb["event"] = "alive";
     hb["uptime_ms"] = nowMs;
     hb["simulated"] = SF_SIMULATION_MODE ? true : false;
+    hb["sim_feeder_sensor"] = SF_SIMULATE_FEEDER_LEVEL_SENSOR ? true : false;
+    hb["sim_water_sensor"] = SF_SIMULATE_WATER_LEVEL_SENSOR ? true : false;
+    hb["sim_feed_motor"] = SF_SIMULATE_FEED_MOTOR ? true : false;
     hb["wifi_connected"] = WiFi.status() == WL_CONNECTED;
     sendLog("heartbeat", hb.as<JsonVariant>());
   }
@@ -167,6 +220,8 @@ void loop() {
       sendLog("watering", p.as<JsonVariant>());
     }
   }
+
+  serviceLevelErrorBuzzer(cfg);
 
   delay(MAIN_LOOP_DELAY_MS);
 }

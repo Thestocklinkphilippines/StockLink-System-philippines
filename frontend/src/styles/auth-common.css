@@ -287,3 +287,149 @@
   color: var(--text-500);
   font-size: 0.875rem;
 }
+
+@media (max-width: 1100px) {
+  .auth-page .sidepanel {
+    width: 44%;
+  }
+
+  .auth-page .login-panel,
+  .auth-page .register-panel {
+    width: 56%;
+    padding: 2rem;
+  }
+
+  .auth-page .branding-title {
+    margin-right: 2rem;
+    font-size: 2.25rem;
+  }
+
+  .auth-page .branding-text {
+    margin-right: 2rem;
+    font-size: 1.05rem;
+  }
+}
+
+@media (max-width: 860px) {
+  .auth-page {
+    overflow-y: auto;
+  }
+
+  .auth-page .main-content {
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .auth-page .circle1,
+  .auth-page .circle2,
+  .auth-page .features,
+  .auth-page .branding-text {
+    display: none;
+  }
+
+  .auth-page .sidepanel,
+  .auth-page-login .sidepanel,
+  .auth-page-register .sidepanel {
+    width: 100%;
+    min-height: auto;
+    padding: 0.9rem 1rem;
+    gap: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--secondary) 24%, transparent);
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .auth-page .logo-container {
+    width: 2.85rem;
+    height: 2.85rem;
+    margin: 0;
+    border-radius: 0.7rem;
+  }
+
+  .auth-page .logo-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .auth-page .branding-title {
+    margin: 0 0 0 0.75rem;
+    font-size: 1.15rem;
+    line-height: 1.15;
+  }
+
+  .auth-page .login-panel,
+  .auth-page .register-panel,
+  .auth-page-login .login-panel,
+  .auth-page-register .register-panel {
+    width: 100%;
+    min-height: 0;
+    box-shadow: none;
+    padding: 1.1rem 1rem 1.4rem;
+  }
+
+  .auth-page .logintitle {
+    font-size: 1.35rem;
+  }
+
+  .auth-page .logintitlemessage {
+    margin-top: 0.55rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.92rem;
+  }
+
+  .auth-page .username-field input,
+  .auth-page .email-field input,
+  .auth-page .password-field input,
+  .auth-page .auth-input,
+  .auth-page .login-button {
+    height: 3.2rem;
+  }
+
+  .auth-page .password-toggle {
+    bottom: 2.5rem;
+  }
+
+  .auth-page .footer-links {
+    margin-top: 1.1rem;
+    gap: 0.8rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .auth-page .sidepanel,
+  .auth-page-login .sidepanel,
+  .auth-page-register .sidepanel {
+    padding: 0.75rem 0.75rem;
+  }
+
+  .auth-page .login-panel,
+  .auth-page .register-panel,
+  .auth-page-login .login-panel,
+  .auth-page-register .register-panel {
+    padding: 1rem 0.75rem 1.25rem;
+  }
+
+  .auth-page .logo-container {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .auth-page .logo-icon {
+    width: 1.8rem;
+    height: 1.8rem;
+  }
+
+  .auth-page .branding-title {
+    margin-left: 0.6rem;
+    font-size: 1rem;
+  }
+
+  .auth-page .logintitle {
+    font-size: 1.2rem;
+  }
+
+  .auth-page .logintitlemessage {
+    font-size: 0.86rem;
+  }
+}

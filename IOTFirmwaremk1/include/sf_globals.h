@@ -11,5 +11,6 @@ extern RuntimeState state;
 extern String lastScheduleSlot;
 extern String serialCmdBuffer;
 extern String cachedCfgStr;
+extern bool gSerialConsoleExclusive;
 
 #endif
