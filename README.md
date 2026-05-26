@@ -4,8 +4,6 @@ This workspace contains a minimal scaffold for the Django REST backend and a Rea
 
 See `requirements.txt` for Python deps.
 
-For PythonAnywhere deployment, see [PYTHONANYWHERE_DEPLOYMENT.md](PYTHONANYWHERE_DEPLOYMENT.md).
-
 Quick setup (local dev):
 
 1. Create virtualenv and install:

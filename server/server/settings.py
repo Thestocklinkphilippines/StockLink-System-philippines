@@ -4,22 +4,27 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _env_list(name, default=None):
+    raw_value = os.getenv(name, "")
+    values = [item.strip() for item in raw_value.split(",") if item.strip()]
+    if values:
+        return values
+    return list(default or [])
+
+
 def _env_bool(name, default=False):
-    return os.getenv(name, str(default)).strip().lower() in {'1', 'true', 'yes', 'on'}
-
-
-def _env_list(name):
-    value = os.getenv(name, '')
-    return [item.strip() for item in value.split(',') if item.strip()]
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-placeholder')
 
 DEBUG = _env_bool('DJANGO_DEBUG', True)
 
-if not DEBUG and SECRET_KEY == 'dev-placeholder':
-    raise RuntimeError('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false.')
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS', ['*'] if DEBUG else [])
 
-ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS') or (['localhost', '127.0.0.1'] if DEBUG else [])
+CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -36,8 +41,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'iot.middleware.SystemTimezoneMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -71,10 +76,6 @@ DATABASES = {
     }
 }
 
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = _env_list('DJANGO_CORS_ALLOWED_ORIGINS')
-CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
-
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'en-us'
@@ -89,12 +90,13 @@ STATIC_URL = '/static/'
 
 # Frontend build integration (React)
 FRONTEND_BUILD_DIR = BASE_DIR.parent / 'frontend' / 'build'
-STATICFILES_DIRS = [
-    str(FRONTEND_BUILD_DIR / 'static'),
-]
+STATICFILES_DIRS = []
+if (FRONTEND_BUILD_DIR / 'static').exists():
+    STATICFILES_DIRS.append(str(FRONTEND_BUILD_DIR / 'static'))
 
 # Allow Django template loader to find the SPA index.html
-TEMPLATES[0]['DIRS'].append(str(FRONTEND_BUILD_DIR))
+if FRONTEND_BUILD_DIR.exists():
+    TEMPLATES[0]['DIRS'].append(str(FRONTEND_BUILD_DIR))
 
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
@@ -104,6 +106,17 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.BasicAuthentication',
     ],
 }
+
+CORS_ALLOWED_ORIGINS = _env_list('DJANGO_CORS_ALLOWED_ORIGINS')
+CORS_ALLOW_ALL_ORIGINS = DEBUG and not CORS_ALLOWED_ORIGINS
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = _env_bool('DJANGO_SECURE_SSL_REDIRECT', False)
+SESSION_COOKIE_SECURE = _env_bool('DJANGO_SESSION_COOKIE_SECURE', False)
+CSRF_COOKIE_SECURE = _env_bool('DJANGO_CSRF_COOKIE_SECURE', False)
+SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = _env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
 
 # Gmail SMTP (PythonAnywhere free-tier compatible)
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
