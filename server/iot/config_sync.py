@@ -78,6 +78,7 @@ def sync_thresholds_from_payload(payload):
 
     settings_obj = SystemSettings.get_solo()
     changed = False
+    updated_fields = set()
     fields = [
         "feeder_low_threshold_pct",
         "feeder_high_threshold_pct",
@@ -87,19 +88,22 @@ def sync_thresholds_from_payload(payload):
         "alert_feeder_high_threshold_pct",
         "alert_water_low_threshold_pct",
         "alert_water_high_threshold_pct",
+        "low_battery_shutdown_v",
     ]
 
     for field in fields:
         if field not in payload:
             continue
         value = _coerce_float(payload.get(field))
-        if value is None or value < 0 or value > 100:
+        if value is None or value <= 0 or value > 100:
             continue
         if getattr(settings_obj, field) != value:
             setattr(settings_obj, field, value)
             changed = True
+        updated_fields.add(field)
 
     if changed:
+        settings_obj._changed_system_setting_fields = updated_fields
         settings_obj.save()
     return changed
 

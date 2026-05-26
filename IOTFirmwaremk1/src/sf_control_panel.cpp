@@ -11,6 +11,7 @@
 #include "sf_sensors.h"
 #include "sf_storage.h"
 #include "sf_utils.h"
+#include "sf_pins.h"
 
 namespace {
 
@@ -29,6 +30,11 @@ unsigned long gFeedingStartedMs = 0;
 unsigned long gFeedingDurationMs = 0;
 float gFeedInputKg = 0.10f;
 
+// Backlight idle management
+unsigned long gLastKeyActivityMs = 0;
+bool gLcdBacklightOn = true;
+static const unsigned long LCD_BACKLIGHT_TIMEOUT_MS = 5UL * 60UL * 1000UL; // 5 minutes
+
 NumericEntryTarget gEntryTarget = ENTRY_NONE;
 char gEntryBuffer[16] = {'\0'};
 int gEntryLength = 0;
@@ -44,6 +50,7 @@ float gSelectedScheduleAmountKg = 0.0f;
 
 int gSettingsIndex = 0;
 int gThresholdIndex = 0;
+int gGrainIndex = 0;
 
 int gTimeEditHour = 0;
 int gTimeEditMinute = 0;
@@ -59,6 +66,8 @@ static const char* kMenuItems[] = {
     "Alerts",
     "Settings",
 };
+
+static const char* kWeekdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 static const int kMenuCount = (int)(sizeof(kMenuItems) / sizeof(kMenuItems[0]));
 
@@ -80,6 +89,13 @@ void clearAndPrint4(const String& l1, const String& l2, const String& l3, const 
   gLcd->print(l4.substring(0, 20));
 }
 
+void setLcdBacklight(bool on) {
+  gLcdBacklightOn = on;
+  if (!gLcd) return;
+  if (on) gLcd->backlight();
+  else gLcd->noBacklight();
+}
+
 String fmtPct(const char* label, float v) {
   char b[24];
   snprintf(b, sizeof(b), "%s:%3d%%", label, (int)clampf(v, 0.0f, 100.0f));
@@ -99,6 +115,44 @@ String fmtKg(float value, int decimals = 2) {
   char b[24];
   snprintf(b, sizeof(b), "%.*fkg", decimals, value);
   return String(b);
+}
+
+bool scheduleHasDay(JsonArrayConst days, const char* dayName) {
+  if (days.isNull()) return false;
+  for (JsonVariantConst day : days) {
+    const char* value = day | "";
+    if (String(value).equalsIgnoreCase(dayName)) return true;
+  }
+  return false;
+}
+
+String formatScheduleDays(JsonVariantConst schedule) {
+  JsonArrayConst days = schedule["days"].as<JsonArrayConst>();
+
+  String pattern = "[";
+  for (const char* weekday : kWeekdays) {
+    pattern += scheduleHasDay(days, weekday) ? '#' : ' ';
+  }
+  pattern += "]";
+  return pattern;
+}
+
+String formatScheduleRow(JsonVariantConst schedule, bool selected) {
+  static const int kLcdColumns = 20;
+
+  const char* t = schedule["time"] | "--:--";
+  bool en = schedule["enabled"] | false;
+
+  String row = String(selected ? ">" : " ") + t + (en ? " ON" : " OFF");
+  String pattern = formatScheduleDays(schedule);
+
+  int pad = kLcdColumns - (int)row.length() - (int)pattern.length();
+  if (pad < 1) pad = 1;
+  for (int i = 0; i < pad; i++) {
+    row += ' ';
+  }
+  row += pattern;
+  return row;
 }
 
 void trimEntryTrailingZeroes() {
@@ -123,10 +177,10 @@ void setEntryFromValue(float value, int decimals = 2) {
   trimEntryTrailingZeroes();
 }
 
-void beginManualFeedEntry() {
+void beginManualFeedEntry(JsonVariant cfg) {
   gEntryTarget = ENTRY_MANUAL_FEED;
   gEntryMinKg = 0.05f;
-  gEntryMaxKg = DEFAULT_MAX_SINGLE_FEED_KG;
+  gEntryMaxKg = getMaxSingleFeedKg(cfg);
   setEntryFromValue(gFeedInputKg, 2);
 }
 
@@ -217,6 +271,8 @@ void beginScheduleAmountEntry(JsonVariant cfg) {
 int getActiveAlerts(JsonVariant cfg, bool* lowFeed, bool* lowWater, bool* powerOut) {
   float feedPct = getFeederLevelPct(cfg);
   float waterPct = getWaterLevelPct(cfg);
+
+  float batteryVoltage = getBatteryVoltageV(cfg);
   float feedLow = getCfg(cfg, "feeder_low_threshold_pct", DEFAULT_FEEDER_LOW_THRESHOLD_PCT);
   float waterLow = getCfg(cfg, "water_low_threshold_pct", DEFAULT_WATER_LOW_THRESHOLD_PCT);
 
@@ -274,26 +330,106 @@ void setScheduleEnabledByIndex(int wantedIndex, bool enabled) {
 }
 
 void drawHome(JsonVariant cfg) {
-  String line1 = "Smart Feeder  " + nowHm();
+  String line1 = "StockLink  " + nowHm();
 
+  // Find the next scheduled feed time
   String nextSched = "Next: --:--";
+  
+  // Get current time
+  time_t now = time(nullptr);
+  struct tm t;
+  localtime_r(&now, &t);
+  int nowMin = (t.tm_hour * 60) + t.tm_min;
+  int nowWday = t.tm_wday;
+  
   if (cfg.containsKey("schedules")) {
     JsonArray arr = cfg["schedules"].as<JsonArray>();
     if (!arr.isNull()) {
+      const int kMinPerDay = 24 * 60;
+      int bestOffsetMin = 8 * kMinPerDay;
+      int bestSchedMin = -1;
+
       for (JsonVariant s : arr) {
         bool enabled = s["enabled"] | false;
-        if (enabled) {
-          const char* t = s["time"] | "--:--";
-          nextSched = String("Next: ") + t;
+        if (!enabled) continue;
+
+        const char* timeStr = s["time"] | "--:--";
+        if (strlen(timeStr) != 5 || timeStr[2] != ':') continue;
+        if (timeStr[0] < '0' || timeStr[0] > '9' ||
+            timeStr[1] < '0' || timeStr[1] > '9' ||
+            timeStr[3] < '0' || timeStr[3] > '9' ||
+            timeStr[4] < '0' || timeStr[4] > '9') {
+          continue;
+        }
+
+        int schedHour = ((timeStr[0] - '0') * 10) + (timeStr[1] - '0');
+        int schedMinute = ((timeStr[3] - '0') * 10) + (timeStr[4] - '0');
+        if (schedHour < 0 || schedHour >= 24 || schedMinute < 0 || schedMinute >= 60) continue;
+
+        int schedMinOfDay = (schedHour * 60) + schedMinute;
+        JsonArrayConst days = s["days"].as<JsonArrayConst>();
+        bool hasDays = !days.isNull() && days.size() > 0;
+
+        if (!hasDays) {
+          int offset = schedMinOfDay - nowMin;
+          if (offset < 0) offset += kMinPerDay;
+          if (offset < bestOffsetMin) {
+            bestOffsetMin = offset;
+            bestSchedMin = schedMinOfDay;
+          }
+          continue;
+        }
+
+        for (int dayOffset = 0; dayOffset < 7; dayOffset++) {
+          int weekdayIdx = (nowWday + dayOffset) % 7;
+          if (!scheduleHasDay(days, kWeekdays[weekdayIdx])) continue;
+
+          int offset = (dayOffset * kMinPerDay) + (schedMinOfDay - nowMin);
+          if (offset < 0) {
+            // Same day but earlier time is not upcoming.
+            continue;
+          }
+
+          if (offset < bestOffsetMin) {
+            bestOffsetMin = offset;
+            bestSchedMin = schedMinOfDay;
+          }
           break;
         }
+      }
+
+      if (bestSchedMin >= 0) {
+        int chh = bestSchedMin / 60;
+        int cmm = bestSchedMin % 60;
+        char buf[16];
+        snprintf(buf, sizeof(buf), "Next:%02d:%02d", chh, cmm);
+        nextSched = String(buf);
       }
     }
   }
 
-  float feed = getFeederLevelPct(cfg);
-  String line3 = fmtPct("Feed", feed);
-  String line4 = "A=Menu C=Feed";
+  float feedPct = getFeederLevelPct(cfg);
+  float waterPct = getWaterLevelPct(cfg);
+
+  float maxCapKg = getCfg(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
+  if (maxCapKg <= 0.0f) maxCapKg = DEFAULT_MAX_FEEDS_CAPACITY_KG;
+
+  float feedKg = clampf((feedPct / 100.0f) * maxCapKg, 0.0f, maxCapKg);
+
+  char line3Buf[32];
+  snprintf(line3Buf, sizeof(line3Buf), "F:%gkg W:%d%%", feedKg, (int)clampf(waterPct, 0.0f, 100.0f));
+  String line3 = String(line3Buf);
+  // Main overview: show battery value like other status indicators, controls on same line
+  float batteryVoltage = getBatteryVoltageV(cfg);
+  char battBuf[16];
+  if (batteryVoltage >= 0.0f) {
+    snprintf(battBuf, sizeof(battBuf), "B:%.1fV", batteryVoltage);
+  } else {
+    snprintf(battBuf, sizeof(battBuf), "B:-");
+  }
+  char line4buf[32];
+  snprintf(line4buf, sizeof(line4buf), "%s A=Menu C=Feed", battBuf);
+  String line4 = String(line4buf);
   clearAndPrint4(line1, nextSched, line3, line4);
 }
 
@@ -315,7 +451,9 @@ void drawNumericEntry(const char* title, const char* hintLine4) {
 }
 
 void drawManualInput() {
-  drawNumericEntry("Manual Feed", "C=Next D=Back");
+  char limitBuf[24];
+  snprintf(limitBuf, sizeof(limitBuf), "Max %.2fkg", gEntryMaxKg);
+  drawNumericEntry("Manual Feed", limitBuf);
 }
 
 void drawManualConfirm() {
@@ -353,9 +491,7 @@ void drawSchedules(JsonArray schedules) {
     int idx = base + i;
     if (idx >= size) continue;
     JsonVariant s = schedules[idx];
-    const char* t = s["time"] | "--:--";
-    bool en = s["enabled"] | false;
-    rows[i] = String(idx == gScheduleIndex ? ">" : " ") + t + (en ? " ON" : " OFF");
+    rows[i] = formatScheduleRow(s, idx == gScheduleIndex);
   }
 
   clearAndPrint4("Schedules", rows[0], rows[1], rows[2]);
@@ -375,7 +511,14 @@ void drawStatus(JsonVariant cfg) {
   float feed = getFeederLevelPct(cfg);
   float water = getWaterLevelPct(cfg);
   String pwr = state.mainsPowerPresent ? "MAIN" : "UPS";
-  clearAndPrint4(fmtPct("Feed", feed), fmtPct("Drink", water), String("Power:") + pwr, "D=Back");
+  float batteryVoltage = getBatteryVoltageV(cfg);
+  char b3[32];
+  if (batteryVoltage >= 0.0f) {
+    snprintf(b3, sizeof(b3), "Power:%s B:%.1fV", pwr.c_str(), batteryVoltage);
+  } else {
+    snprintf(b3, sizeof(b3), "Power:%s B:-", pwr.c_str());
+  }
+  clearAndPrint4(fmtPct("Feed", feed), fmtPct("Drink", water), String(b3), "D=Back");
 }
 
 void drawAlerts(JsonVariant cfg) {
@@ -408,19 +551,50 @@ void drawAlertAck() {
 
 void drawSettingsMenu() {
   String l2 = String(gSettingsIndex == 0 ? ">" : " ") + "Thresholds";
-  String l3 = String(gSettingsIndex == 1 ? ">" : " ") + "Time Setup";
-  clearAndPrint4("Settings", l2, l3, "D=Back");
+  String l3 = String(gSettingsIndex == 1 ? ">" : " ") + "Grain Type";
+  String l4 = String(gSettingsIndex == 2 ? ">" : " ") + "Time Setup";
+  clearAndPrint4("Settings", l2, l3, l4);
+}
+
+void drawGrainEditor(JsonVariant cfg) {
+  int count = getGrainTypeCount(cfg);
+  if (count <= 0) count = DEFAULT_GRAIN_TYPE_COUNT;
+  if (count <= 0) {
+    clearAndPrint4("Grain Type", "No options", "", "D=Back");
+    return;
+  }
+
+  if (gGrainIndex < 0) gGrainIndex = 0;
+  if (gGrainIndex >= count) gGrainIndex %= count;
+
+  const char* selectedType = getGrainTypeNameByIndex(cfg, gGrainIndex);
+  float selectedRate = getGrainTypeMsPerKgByIndex(cfg, gGrainIndex);
+
+  String line2 = String(">") + selectedType;
+  char rateBuf[24];
+  snprintf(rateBuf, sizeof(rateBuf), "%.1f ms/kg", selectedRate);
+  clearAndPrint4("Grain Type", line2, String(rateBuf), "A/B=Change D=Back");
 }
 
 void drawThresholdEditor(JsonVariant cfg) {
   float feedLow = getCfg(cfg, "feeder_low_threshold_pct", DEFAULT_FEEDER_LOW_THRESHOLD_PCT);
   float waterLow = getCfg(cfg, "water_low_threshold_pct", DEFAULT_WATER_LOW_THRESHOLD_PCT);
+  float batteryShutdown = getCfg(cfg, "low_battery_shutdown_v", DEFAULT_LOW_BATTERY_SHUTDOWN_V);
 
   char b2[24];
   char b3[24];
-  snprintf(b2, sizeof(b2), "%cFeeder Low: %2d%%", gThresholdIndex == 0 ? '>' : ' ', (int)feedLow);
-  snprintf(b3, sizeof(b3), "%cWater  Low: %2d%%", gThresholdIndex == 1 ? '>' : ' ', (int)waterLow);
-  clearAndPrint4("Thresholds", String(b2), String(b3), "A/B +/- C=Next D=Back");
+  char b4[24];
+  snprintf(b2, sizeof(b2), "%cF:%2d%%", gThresholdIndex == 0 ? '>' : ' ', (int)feedLow);
+  snprintf(b3, sizeof(b3), "%cW:%2d%%", gThresholdIndex == 1 ? '>' : ' ', (int)waterLow);
+  snprintf(b4, sizeof(b4), "%cB:%4.1fV", gThresholdIndex == 2 ? '>' : ' ', batteryShutdown);
+
+  // Try to place feeder and water on the same line if they fit
+  String combined = String(b2) + " " + String(b3);
+  if (combined.length() <= 20) {
+    clearAndPrint4("Thresholds D=Back", combined, "", String(b4) + " C=Next");
+  } else {
+    clearAndPrint4("Thresholds D=Back", String(b2), String(b3), String(b4) + " C=Next");
+  }
 }
 
 void drawTimeSetup() {
@@ -434,22 +608,22 @@ void transition(ControlPanelState next) {
   gState = next;
 }
 
-void handleHomeKey(char key) {
+void handleHomeKey(char key, JsonVariant cfg) {
   if (key == 'A') transition(STATE_MENU);
   if (key == 'C') {
-    beginManualFeedEntry();
+    beginManualFeedEntry(cfg);
     transition(STATE_MANUAL_FEED_INPUT);
   }
 }
 
-void handleMenuKey(char key) {
+void handleMenuKey(char key, JsonVariant cfg) {
   if (key == 'A') gMenuIndex = (gMenuIndex - 1 + kMenuCount) % kMenuCount;
   if (key == 'B') gMenuIndex = (gMenuIndex + 1) % kMenuCount;
   if (key == 'D') transition(STATE_HOME);
 
   if (key == 'C') {
     if (gMenuIndex == 0) {
-      beginManualFeedEntry();
+      beginManualFeedEntry(cfg);
       transition(STATE_MANUAL_FEED_INPUT);
     }
     if (gMenuIndex == 1) transition(STATE_SCHEDULE_LIST);
@@ -459,7 +633,7 @@ void handleMenuKey(char key) {
   }
 }
 
-void handleManualInputKey(char key) {
+void handleManualInputKey(char key, JsonVariant cfg) {
   if (key == 'A') {
     clearEntry();
     return;
@@ -473,6 +647,7 @@ void handleManualInputKey(char key) {
     return;
   }
   if (key == 'C') {
+    gEntryMaxKg = getMaxSingleFeedKg(cfg);
     float entered = clampf(parseEntryValue(), gEntryMinKg, gEntryMaxKg);
     gFeedInputKg = entered;
     setEntryFromValue(gFeedInputKg, 2);
@@ -602,13 +777,13 @@ void handleAlertAckKey(char key) {
 }
 
 void handleSettingsMenuKey(char key) {
-  if (key == 'A' || key == 'B') {
-    gSettingsIndex = (gSettingsIndex == 0) ? 1 : 0;
-  }
+  if (key == 'A') gSettingsIndex = (gSettingsIndex - 1 + 3) % 3;
+  if (key == 'B') gSettingsIndex = (gSettingsIndex + 1) % 3;
   if (key == 'D') transition(STATE_MENU);
   if (key == 'C') {
     if (gSettingsIndex == 0) transition(STATE_SETTINGS_THRESHOLD);
-    if (gSettingsIndex == 1) {
+    if (gSettingsIndex == 1) transition(STATE_SETTINGS_GRAIN);
+    if (gSettingsIndex == 2) {
       time_t now = time(nullptr);
       struct tm t;
       localtime_r(&now, &t);
@@ -622,9 +797,10 @@ void handleSettingsMenuKey(char key) {
 void handleThresholdKey(char key, JsonVariant cfg) {
   float feedLow = getCfg(cfg, "feeder_low_threshold_pct", DEFAULT_FEEDER_LOW_THRESHOLD_PCT);
   float waterLow = getCfg(cfg, "water_low_threshold_pct", DEFAULT_WATER_LOW_THRESHOLD_PCT);
+  float batteryShutdown = getCfg(cfg, "low_battery_shutdown_v", DEFAULT_LOW_BATTERY_SHUTDOWN_V);
 
   if (key == 'C') {
-    gThresholdIndex = (gThresholdIndex + 1) % 2;
+    gThresholdIndex = (gThresholdIndex + 1) % 3;
     return;
   }
   if (key == 'D') {
@@ -636,10 +812,40 @@ void handleThresholdKey(char key, JsonVariant cfg) {
   if (key == 'A') {
     if (gThresholdIndex == 0) saveNumericConfig("feeder_low_threshold_pct", clampf(feedLow + step, 1.0f, 99.0f));
     if (gThresholdIndex == 1) saveNumericConfig("water_low_threshold_pct", clampf(waterLow + step, 1.0f, 99.0f));
+    if (gThresholdIndex == 2) saveNumericConfig("low_battery_shutdown_v", clampf(batteryShutdown + 0.1f, 9.0f, 14.5f));
   }
   if (key == 'B') {
     if (gThresholdIndex == 0) saveNumericConfig("feeder_low_threshold_pct", clampf(feedLow - step, 1.0f, 99.0f));
     if (gThresholdIndex == 1) saveNumericConfig("water_low_threshold_pct", clampf(waterLow - step, 1.0f, 99.0f));
+    if (gThresholdIndex == 2) saveNumericConfig("low_battery_shutdown_v", clampf(batteryShutdown - 0.1f, 9.0f, 14.5f));
+  }
+}
+
+void handleGrainKey(char key, JsonVariant cfg) {
+  int count = getGrainTypeCount(cfg);
+  if (count <= 0) count = DEFAULT_GRAIN_TYPE_COUNT;
+  if (count <= 0) {
+    if (key == 'D') transition(STATE_SETTINGS_MENU);
+    return;
+  }
+
+  if (key == 'D') {
+    transition(STATE_SETTINGS_MENU);
+    return;
+  }
+  if (key == 'A') {
+    gGrainIndex = (gGrainIndex - 1 + count) % count;
+    saveGrainTypeSelection(cfg, gGrainIndex);
+    return;
+  }
+  if (key == 'B') {
+    gGrainIndex = (gGrainIndex + 1) % count;
+    saveGrainTypeSelection(cfg, gGrainIndex);
+    return;
+  }
+  if (key == 'C') {
+    saveGrainTypeSelection(cfg, gGrainIndex);
+    transition(STATE_SETTINGS_MENU);
   }
 }
 
@@ -719,6 +925,9 @@ void drawCurrent(JsonVariant cfg, JsonArray schedules) {
     case STATE_SETTINGS_THRESHOLD:
       drawThresholdEditor(cfg);
       break;
+    case STATE_SETTINGS_GRAIN:
+      drawGrainEditor(cfg);
+      break;
     case STATE_SETTINGS_TIME:
       drawTimeSetup();
       break;
@@ -730,13 +939,13 @@ void handleStateKey(char key, JsonVariant cfg, JsonArray schedules) {
 
   switch (gState) {
     case STATE_HOME:
-      handleHomeKey(key);
+      handleHomeKey(key, cfg);
       break;
     case STATE_MENU:
-      handleMenuKey(key);
+      handleMenuKey(key, cfg);
       break;
     case STATE_MANUAL_FEED_INPUT:
-      handleManualInputKey(key);
+      handleManualInputKey(key, cfg);
       break;
     case STATE_MANUAL_FEED_CONFIRM:
       handleManualConfirmKey(key, cfg);
@@ -763,10 +972,16 @@ void handleStateKey(char key, JsonVariant cfg, JsonArray schedules) {
       handleAlertAckKey(key);
       break;
     case STATE_SETTINGS_MENU:
+      if (key == 'C' && gSettingsIndex == 1) {
+        gGrainIndex = getSelectedGrainTypeIndex(cfg);
+      }
       handleSettingsMenuKey(key);
       break;
     case STATE_SETTINGS_THRESHOLD:
       handleThresholdKey(key, cfg);
+      break;
+    case STATE_SETTINGS_GRAIN:
+      handleGrainKey(key, cfg);
       break;
     case STATE_SETTINGS_TIME:
       handleTimeSetupKey(key);
@@ -785,8 +1000,21 @@ void initControlPanel(LiquidCrystal_I2C* lcd) {
 
 void updateControlPanel(JsonVariant cfg, JsonArray schedules) {
   if (!gLcd) return;
-
   char key = consumeKeypadKeyEvent();
+
+  // Update last activity and wake LCD if needed
+  if (key != '\0') {
+    gLastKeyActivityMs = millis();
+    if (!gLcdBacklightOn) {
+      setLcdBacklight(true);
+    }
+  }
+
+  // If backlight is on and idle timeout exceeded, turn it off
+  if (gLcdBacklightOn && (millis() - gLastKeyActivityMs >= LCD_BACKLIGHT_TIMEOUT_MS)) {
+    setLcdBacklight(false);
+  }
+
   handleStateKey(key, cfg, schedules);
 
   bool stateChanged = (gState != gPrevState);

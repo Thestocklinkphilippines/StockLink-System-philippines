@@ -2,10 +2,17 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('admin/users/', views.AdminUserListView.as_view(), name='admin-users'),
+    path('admin/users/<int:user_id>/promote/', views.AdminUserPromoteView.as_view(), name='admin-user-promote'),
+    path('admin/users/<int:user_id>/demote/', views.AdminUserDemoteView.as_view(), name='admin-user-demote'),
+    path('admin/users/<int:user_id>/approve/', views.AdminUserApproveView.as_view(), name='admin-user-approve'),
+    path('admin/users/<int:user_id>/reject/', views.AdminUserRejectView.as_view(), name='admin-user-reject'),
+    path('admin/users/<int:user_id>/', views.AdminUserDeleteView.as_view(), name='admin-user-delete'),
     path('system/settings/', views.SystemSettingsView.as_view(), name='system-settings'),
     path('notifications/test-email/', views.TestEmailView.as_view(), name='notifications-test-email'),
     path('devices/', views.DeviceListView.as_view(), name='device-list'),
     path('device/<str:device_id>/config/', views.DeviceConfigView.as_view(), name='device-config'),
+    path('device/<str:device_id>/events/', views.DeviceEventIngestView.as_view(), name='device-events'),
     path('device/<str:device_id>/logs/', views.LogsView.as_view(), name='device-logs'),
     path('device/<str:device_id>/alerts/', views.AlertsView.as_view(), name='device-alerts'),
     path('device/<str:device_id>/sensor-state/', views.SensorStateView.as_view(), name='device-sensor-state'),
@@ -13,6 +20,10 @@ urlpatterns = [
     path('device/<str:device_id>/feed-now/<int:command_id>/ack/', views.FeedNowAcknowledgeView.as_view(), name='device-feed-now-ack'),
     path('devices/register/', views.DeviceRegisterView.as_view(), name='device-register'),
     path('auth/register/', views.RegisterUserView.as_view(), name='user-register'),
+    path('auth/verify-email/', views.VerifyEmailView.as_view(), name='user-verify-email'),
+    path('auth/resend-verification/', views.ResendVerificationEmailView.as_view(), name='user-resend-verification'),
+    path('auth/password-reset/request/', views.PasswordResetRequestView.as_view(), name='user-password-reset-request'),
+    path('auth/password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='user-password-reset-confirm'),
     path('auth/login/', views.LoginUserView.as_view(), name='user-login'),
     path('auth/logout/', views.LogoutUserView.as_view(), name='user-logout'),
     path('auth/user/', views.CurrentUserView.as_view(), name='user-current'),

@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <stdlib.h>
 
+#include "sf_adc.h"
 #include "sf_config.h"
 #include "sf_actuators.h"
 #include "sf_debug.h"
@@ -40,6 +41,21 @@ struct KeypadCalibrationSession {
 };
 
 KeypadCalibrationSession gKeypadCal = {false, 0, 0, true, {0}, 0};
+
+void keypadConsolePrint(const char* text) {
+  if (text == nullptr) return;
+  Serial.println(text);
+  SFMultiConsole.keypadPrintf("%s\n", text);
+}
+
+template <typename... Args>
+void keypadConsolePrintf(const char* format, Args... args) {
+  char buffer[256];
+  int len = snprintf(buffer, sizeof(buffer), format, args...);
+  if (len < 0) return;
+  Serial.print(buffer);
+  SFMultiConsole.keypadPrintf("%s", buffer);
+}
 
 bool tryParseFloat(const String& token, float& outValue) {
   if (token.length() == 0) return false;
@@ -92,27 +108,35 @@ int sampleKeypadAdcAverage() {
   return (int)(total / kSamples);
 }
 
+// High-reliability ADC sampling for calibration mode (blocking but very accurate)
+static int sampleKeypadAdcCalibration() {
+  // Use the new ADC module with critical priority for maximum reliability during calibration
+  return readAdcReliable(PIN_KEYPAD_ADC, ADC_PRIORITY_CRITICAL);
+}
+
 void printCalibrationPrompt() {
   if (!gKeypadCal.active) return;
 
   if (gKeypadCal.step < 16) {
     Serial.println();
-    Serial.printf("[KEYPAD CAL] Step %d/16\n", gKeypadCal.step + 1);
-    Serial.printf("[KEYPAD CAL] Press and hold key '%c', then type: sample\n", kCalKeys[gKeypadCal.step]);
-    Serial.println("[KEYPAD CAL] Type 'cancel' anytime to abort.");
+    SFMultiConsole.keypadPrintf("\n");
+    keypadConsolePrintf("[KEYPAD CAL] Step %d/16\n", gKeypadCal.step + 1);
+    keypadConsolePrintf("[KEYPAD CAL] Press and hold key '%c', then type: sample\n", kCalKeys[gKeypadCal.step]);
+    keypadConsolePrint("[KEYPAD CAL] Type 'cancel' anytime to abort.");
     return;
   }
 
   Serial.println();
-  Serial.println("[KEYPAD CAL] Final step");
-  Serial.println("[KEYPAD CAL] Release all keys, then type: sample");
+  SFMultiConsole.keypadPrintf("\n");
+  keypadConsolePrint("[KEYPAD CAL] Final step");
+  keypadConsolePrint("[KEYPAD CAL] Release all keys, then type: sample");
 }
 
 void endCalibrationSession(bool success) {
   gKeypadCal.active = false;
   gSerialConsoleExclusive = false;
   if (!success) {
-    Serial.println("[KEYPAD CAL] Calibration cancelled.");
+    keypadConsolePrint("[KEYPAD CAL] Calibration cancelled.");
   }
 }
 
@@ -122,7 +146,7 @@ bool persistKeypadCalibration() {
   d.clear();
   DeserializationError err = deserializeJson(d, cfg);
   if (err) {
-    Serial.printf("[KEYPAD CAL] Failed to parse config for save: %s\n", err.c_str());
+    keypadConsolePrintf("[KEYPAD CAL] Failed to parse config for save: %s\n", err.c_str());
     return false;
   }
 
@@ -158,29 +182,37 @@ void processKeypadCalibrationLine(const String& rawLine) {
   }
 
   if (line == "help") {
-    Serial.println("[KEYPAD CAL] Commands: sample | cancel");
+    keypadConsolePrint("[KEYPAD CAL] Commands: sample | cancel");
     printCalibrationPrompt();
     return;
   }
 
   if (line != "sample") {
-    Serial.println("[KEYPAD CAL] Unknown command during calibration. Use: sample or cancel");
+    keypadConsolePrint("[KEYPAD CAL] Unknown command during calibration. Use: sample or cancel");
     printCalibrationPrompt();
     return;
   }
 
-  int adc = sampleKeypadAdcAverage();
+  int adc = sampleKeypadAdcCalibration();
 
   if (gKeypadCal.step < 16) {
+    if (adc <= 0) {
+      keypadConsolePrintf("[KEYPAD CAL] ADC=%d is invalid for key '%c'. Retry step %d.\n",
+                          adc,
+                          kCalKeys[gKeypadCal.step],
+                          gKeypadCal.step + 1);
+      return;
+    }
+
     if (gKeypadCal.step > 0) {
       int prev = gKeypadCal.adcByStep[gKeypadCal.step - 1];
       int delta = adc - prev;
 
       if (delta >= -15 && delta <= 15) {
-        Serial.printf("[KEYPAD CAL] ADC=%d is too close to previous=%d. Retry step %d.\n",
-                      adc,
-                      prev,
-                      gKeypadCal.step + 1);
+        keypadConsolePrintf("[KEYPAD CAL] ADC=%d is too close to previous=%d. Retry step %d.\n",
+                            adc,
+                            prev,
+                            gKeypadCal.step + 1);
         return;
       }
 
@@ -189,24 +221,24 @@ void processKeypadCalibrationLine(const String& rawLine) {
         gKeypadCal.trend = stepTrend;
       } else if (stepTrend != gKeypadCal.trend) {
         const char* expected = (gKeypadCal.trend > 0) ? "higher" : "lower";
-        Serial.printf("[KEYPAD CAL] ADC=%d has wrong direction vs previous=%d (expected %s). Retry step %d.\n",
-                      adc,
-                      prev,
-                      expected,
-                      gKeypadCal.step + 1);
+        keypadConsolePrintf("[KEYPAD CAL] ADC=%d has wrong direction vs previous=%d (expected %s). Retry step %d.\n",
+                            adc,
+                            prev,
+                            expected,
+                            gKeypadCal.step + 1);
         return;
       }
     }
 
     gKeypadCal.adcByStep[gKeypadCal.step] = adc;
-    Serial.printf("[KEYPAD CAL] Captured key '%c' -> ADC=%d\n", kCalKeys[gKeypadCal.step], adc);
+    keypadConsolePrintf("[KEYPAD CAL] Captured key '%c' -> ADC=%d\n", kCalKeys[gKeypadCal.step], adc);
     gKeypadCal.step++;
     printCalibrationPrompt();
     return;
   }
 
-  if (adc > 80) {
-    Serial.printf("[KEYPAD CAL] No-key ADC=%d is not near zero. Release all keys and retry.\n", adc);
+  if (adc < 0) {
+    keypadConsolePrintf("[KEYPAD CAL] No-key ADC=%d is invalid. Release all keys and retry.\n", adc);
     return;
   }
 
@@ -214,7 +246,7 @@ void processKeypadCalibrationLine(const String& rawLine) {
 
   int finalTrend = 0;
   if (!hasStrictlyMonotonicValues(gKeypadCal.adcByStep, 16, &finalTrend)) {
-    Serial.println("[KEYPAD CAL] Captured values are invalid (not strictly monotonic). Calibration aborted.");
+    keypadConsolePrint("[KEYPAD CAL] Captured values are invalid (not strictly monotonic). Calibration aborted.");
     endCalibrationSession(false);
     return;
   }
@@ -222,16 +254,16 @@ void processKeypadCalibrationLine(const String& rawLine) {
   gKeypadCal.idleIsLow = (finalTrend < 0);
 
   if (!persistKeypadCalibration()) {
-    Serial.println("[KEYPAD CAL] Failed to save calibration.");
+    keypadConsolePrint("[KEYPAD CAL] Failed to save calibration.");
     endCalibrationSession(false);
     return;
   }
 
-  Serial.printf("[KEYPAD CAL] Saved. idle=%s no_key_adc=%d trend=%s\n",
-                gKeypadCal.idleIsLow ? "low" : "high",
-                gKeypadCal.noKeyAdc,
-                finalTrend > 0 ? "ascending" : "descending");
-  Serial.println("[KEYPAD CAL] Calibration complete. Returning to normal operation.");
+  keypadConsolePrintf("[KEYPAD CAL] Saved. idle=%s no_key_adc=%d trend=%s\n",
+                      gKeypadCal.idleIsLow ? "low" : "high",
+                      gKeypadCal.noKeyAdc,
+                      finalTrend > 0 ? "ascending" : "descending");
+  keypadConsolePrint("[KEYPAD CAL] Calibration complete. Returning to normal operation.");
   endCalibrationSession(true);
 }
 
@@ -245,113 +277,14 @@ void startKeypadCalibrationSession() {
 
   gSerialConsoleExclusive = true;
   Serial.println();
-  Serial.println("[KEYPAD CAL] Serial output is now in exclusive calibration mode.");
-  Serial.println("[KEYPAD CAL] Normal logs are temporarily muted.");
-  Serial.println("[KEYPAD CAL] Commands during calibration: sample | cancel");
+  SFMultiConsole.keypadPrintf("\n");
+  keypadConsolePrint("[KEYPAD CAL] Serial output is now in exclusive calibration mode.");
+  keypadConsolePrint("[KEYPAD CAL] Normal logs are temporarily muted.");
+  keypadConsolePrint("[KEYPAD CAL] Commands during calibration: sample | cancel");
   printCalibrationPrompt();
 }
 
 }  // namespace
-
-static float getConfiguredMaxCapacityKg() {
-  String cfg = loadLocalConfig();
-  if (cfg.length() == 0) return DEFAULT_MAX_FEEDS_CAPACITY_KG;
-
-  static DynamicJsonDocument d(8192);
-  d.clear();
-  DeserializationError err = deserializeJson(d, cfg);
-  if (err) {
-    LOG_WARN("serial max capacity parse failed; using default %.3f", DEFAULT_MAX_FEEDS_CAPACITY_KG);
-    return DEFAULT_MAX_FEEDS_CAPACITY_KG;
-  }
-
-  float maxCap = d["max_feeds_capacity_kg"] | 0.0f;
-  if (maxCap <= 0.0f) {
-    maxCap = d["config"]["max_feeds_capacity_kg"] | DEFAULT_MAX_FEEDS_CAPACITY_KG;
-  }
-  if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
-  return maxCap;
-}
-
-static void setSimValueCommand(const String& args) {
-#if SF_SIMULATION_MODE
-  int sp = args.indexOf(' ');
-  if (sp < 0) {
-    Serial.println("Usage: sim_set feeder|water|mains <value>");
-    return;
-  }
-
-  String field = args.substring(0, sp);
-  String valueToken = args.substring(sp + 1);
-  field.trim();
-  valueToken.trim();
-
-  if (field == "feeder") {
-    float v = 0.0f;
-    if (!tryParseFloat(valueToken, v)) {
-      Serial.println("Invalid feeder value. Example: sim_set feeder 72.5");
-      return;
-    }
-    state.simFeederLevelPct = clampf(v, 0.0f, 100.0f);
-    state.lastFeederLevelPct = state.simFeederLevelPct;
-
-    float maxCap = getConfiguredMaxCapacityKg();
-    float remKg = (state.simFeederLevelPct / 100.0f) * maxCap;
-    writeRemainingKg(remKg);
-
-    Serial.printf("sim_feeder_level_pct set to %.2f (remaining_kg=%.3f max=%.3f)\n",
-                  state.simFeederLevelPct,
-                  remKg,
-                  maxCap);
-    return;
-  }
-
-  if (field == "water") {
-    float v = 0.0f;
-    if (!tryParseFloat(valueToken, v)) {
-      Serial.println("Invalid water value. Example: sim_set water 35");
-      return;
-    }
-    state.simWaterLevelPct = clampf(v, 0.0f, 100.0f);
-    Serial.printf("sim_water_level_pct set to %.2f\n", state.simWaterLevelPct);
-    return;
-  }
-
-  if (field == "mains") {
-    int v = 0;
-    if (!tryParseInt(valueToken, v) || (v != 0 && v != 1)) {
-      Serial.println("Invalid mains value. Use 0 or 1. Example: sim_set mains 0");
-      return;
-    }
-    state.mainsPowerPresent = (v == 1);
-    Serial.printf("mains_power_present set to %d\n", state.mainsPowerPresent ? 1 : 0);
-    return;
-  }
-
-  Serial.println("Unknown sim_set field. Use feeder|water|mains");
-#else
-  (void)args;
-  Serial.println("Simulation mode is disabled; sim_set unavailable.");
-#endif
-}
-
-static void resetSimDefaultsCommand() {
-#if SF_SIMULATION_MODE
-  state.simFeederLevelPct = 85.0f;
-  state.simWaterLevelPct = 90.0f;
-  state.mainsPowerPresent = true;
-  state.lastFeederLevelPct = state.simFeederLevelPct;
-  state.lastWaterLevelPct = state.simWaterLevelPct;
-
-  float maxCap = getConfiguredMaxCapacityKg();
-  writeRemainingKg((state.simFeederLevelPct / 100.0f) * maxCap);
-
-  Serial.printf("Simulation values reset: feeder=85.00 water=90.00 mains=1 remaining_kg=%.3f\n",
-                readRemainingKg());
-#else
-  Serial.println("Simulation mode is disabled; sim_defaults unavailable.");
-#endif
-}
 
 static bool loadCfgDoc() {
   String cfg = loadLocalConfig();
@@ -468,10 +401,9 @@ void printSerialHelp() {
   Serial.println("dump_prefs   -> print key preferences values");
   Serial.println("sched_list   -> list schedules from local config");
   Serial.println("sched_run    -> run schedule now (ignore time): sched_run [id]");
-  Serial.println("sim_set      -> set sim value: sim_set feeder|water|mains <value>");
-  Serial.println("sim_defaults -> reset sim values to defaults");
   Serial.println("keypad_input -> toggle keypad polling: keypad_input [toggle|on|off|status]");
   Serial.println("keypad_cal   -> interactive keypad ADC calibration wizard");
+  Serial.println("dump_outbox  -> print buffered offline event queue");
   Serial.println("===============================================================");
 }
 
@@ -490,10 +422,10 @@ static void keypadInputCommand(const String& args) {
   } else if (action == "off" || action == "0" || action == "false") {
     next = false;
   } else if (action == "status") {
-    Serial.printf("keypad_input_enabled=%d\n", current ? 1 : 0);
+    keypadConsolePrintf("keypad_input_enabled=%d\n", current ? 1 : 0);
     return;
   } else {
-    Serial.println("Usage: keypad_input [toggle|on|off|status]");
+    keypadConsolePrint("Usage: keypad_input [toggle|on|off|status]");
     return;
   }
 
@@ -502,7 +434,7 @@ static void keypadInputCommand(const String& args) {
   d.clear();
   DeserializationError err = deserializeJson(d, cfg);
   if (err) {
-    Serial.printf("Failed to parse config for keypad_input save: %s\n", err.c_str());
+    keypadConsolePrintf("Failed to parse config for keypad_input save: %s\n", err.c_str());
     return;
   }
 
@@ -514,7 +446,7 @@ static void keypadInputCommand(const String& args) {
   serializeJson(d, out);
   saveLocalConfig(out);
   setKeypadInputEnabled(next);
-  Serial.printf("keypad_input_enabled=%d\n", next ? 1 : 0);
+  keypadConsolePrintf("keypad_input_enabled=%d\n", next ? 1 : 0);
 }
 
 void dumpLocalConfigToSerial() {
@@ -530,9 +462,8 @@ void dumpStateToSerial() {
   Serial.printf("wifi_ip=%s\n", WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "0.0.0.0");
   Serial.printf("mains_power_present=%d\n", state.mainsPowerPresent ? 1 : 0);
   Serial.printf("is_refilling=%d\n", state.isRefilling ? 1 : 0);
-  Serial.printf("sim_feeder_level_pct=%.2f\n", state.simFeederLevelPct);
-  Serial.printf("sim_water_level_pct=%.2f\n", state.simWaterLevelPct);
   Serial.printf("remaining_kg=%.4f\n", readRemainingKg());
+  Serial.printf("buffered_event_count=%u\n", state.bufferedEventCount);
   Serial.printf("uptime_ms=%lu\n", millis());
   Serial.println("----- END ESP32 RUNTIME STATE -----");
 }
@@ -583,6 +514,13 @@ void executeSerialCommand(const String& rawCmd) {
     return;
   }
 
+  if (cmd == "dump_outbox") {
+    Serial.println("----- BEGIN ESP32 EVENT OUTBOX -----");
+    Serial.println(loadEventOutbox());
+    Serial.println("----- END ESP32 EVENT OUTBOX -----");
+    return;
+  }
+
   if (cmd == "sched_list") {
     listSchedulesCommand();
     return;
@@ -598,15 +536,7 @@ void executeSerialCommand(const String& rawCmd) {
     return;
   }
 
-  if (cmd.startsWith("sim_set ")) {
-    setSimValueCommand(cmd.substring(8));
-    return;
-  }
 
-  if (cmd == "sim_defaults") {
-    resetSimDefaultsCommand();
-    return;
-  }
 
   if (cmd == "keypad_input" || cmd.startsWith("keypad_input ")) {
     keypadInputCommand(cmd.substring(String("keypad_input").length()));
@@ -627,7 +557,14 @@ void handleSerialCommands() {
     char c = (char)Serial.read();
     if (c == '\r') continue;
     if (c == '\n') {
+      bool routeToCommandPort = Serial.lastReadWasCommandPort();
+      if (routeToCommandPort) {
+        SFMultiConsole.beginCommandResponse();
+      }
       executeSerialCommand(serialCmdBuffer);
+      if (routeToCommandPort) {
+        SFMultiConsole.endCommandResponse();
+      }
       serialCmdBuffer = "";
       continue;
     }

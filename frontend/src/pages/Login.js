@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import api from '../api'
 import '../styles/main.css'
 import '../styles/auth-common.css'
@@ -11,6 +11,7 @@ export default function Login(){
   const [show, setShow] = useState(false)
   const [remember, setRemember] = useState(false)
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const navigate = useNavigate()
 
   function EyeOffIcon() {
@@ -59,11 +60,16 @@ export default function Login(){
   async function submit(e){
     e.preventDefault()
     setError('')
-    const res = await api.postJSON('/api/auth/login/', { username: identity, password })
-    if (res.ok) {
-      navigate('/dashboard/overview')
-    } else {
-      setError(res.body && res.body.detail ? res.body.detail : 'Login failed')
+    setIsSubmitting(true)
+    try {
+      const res = await api.postJSON('/api/auth/login/', { identity, password })
+      if (res.ok) {
+        navigate('/dashboard/overview')
+      } else {
+        setError(res.body && res.body.detail ? res.body.detail : 'Login failed')
+      }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -89,7 +95,7 @@ export default function Login(){
           </div>
 
           <h1 className="branding-title">StockLink IoT</h1>
-          <p className="branding-text">Smart Feeding &amp; Drinker Systems for modern poultry farms. Monitor, manage, and automate with precision.</p>
+          <p className="branding-text">Smart Feeding &amp; Drinker Systems for Modern Poultry Farms. Monitor, Manage, and Automate with Reliability.</p>
 
           <div className="features">
             <div className="feature-item">
@@ -106,7 +112,7 @@ export default function Login(){
                 <svg className="feature-svg" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
               </div>
               <div className="feature-text">
-                <span>Automated Scheduling Engine</span>
+                <span>Automated Farm Operations</span>
               </div>
             </div>
 
@@ -122,18 +128,18 @@ export default function Login(){
         </div>
 
         <section className="login-panel">
-          <h2 className="logintitle">Control Panel Login</h2>
-          <p className="logintitlemessage">Welcome back. Access your poultry management dashboard.</p>
+          <h2 className="logintitle">Website Login</h2>
+          <p className="logintitlemessage">Welcome back! Access your poultry management dashboard.</p>
           <form onSubmit={submit}>
             <div className="email-field">
               <p>Email or Username</p>
-              <input value={identity} onChange={e=>setIdentity(e.target.value)} required className="auth-input" id="username" name="username"/>
+              <input value={identity} onChange={e=>setIdentity(e.target.value)} required className="auth-input" id="identity" name="identity"/>
             </div>
 
             <div className="password-field">
               <div className="password-label-container">
                 <label htmlFor="password">Password</label>
-                <a className="forgot-link" href="#">Forgot Password?</a>
+                <Link className="forgot-link" to="/forgot-password">Forgot Password?</Link>
               </div>
               <input id="password" type={show ? 'text' : 'password'} value={password} onChange={e=>setPassword(e.target.value)} required className="auth-input"/>
               <button type="button" className={`password-toggle ${show ? 'active' : ''}`} onClick={() => setShow(!show)}>
@@ -148,11 +154,11 @@ export default function Login(){
 
             {error ? <p className="auth-error">{error}</p> : null}
 
-            <button className="login-button" type="submit">
-              <span className="login-button-text">Login to Dashboard</span>
-              <svg className="login-button-arrow" xmlns="http://www.w3.org/2000/svg" width="3em" height="3em" viewBox="0 0 24 24" fill="none">
+            <button className="login-button" type="submit" disabled={isSubmitting} aria-busy={isSubmitting}>
+              <span className="login-button-text">{isSubmitting ? 'Logging in...' : 'Login to Dashboard'}</span>
+              {isSubmitting ? <span className="auth-button-spinner" aria-hidden="true"></span> : <svg className="login-button-arrow" xmlns="http://www.w3.org/2000/svg" width="3em" height="3em" viewBox="0 0 24 24" fill="none">
                 <path d="M6 12H18M18 12L13 7M18 12L13 17" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              </svg>}
             </button>
           </form>
 
@@ -167,7 +173,7 @@ export default function Login(){
             </div>
 
             <div className="copyright">
-              <p>© 2023 StockLink IoT Systems. All rights reserved. <br/>Secure poultry management platform.</p>
+              <p>© 2026 StockLink IoT Systems. All rights reserved. <br/>Secure poultry management platform.</p>
             </div>
           </footer>
         </section>

@@ -32,6 +32,19 @@ export async function patchJSON(url, data) {
   try { return { ok: res.ok, status: res.status, body: JSON.parse(text) }; } catch(e) { return { ok: res.ok, status: res.status, body: text }; }
 }
 
+export async function deleteJSON(url) {
+  const res = await fetch(url, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken')
+    }
+  });
+  const text = await res.text();
+  try { return { ok: res.ok, status: res.status, body: JSON.parse(text) }; } catch(e) { return { ok: res.ok, status: res.status, body: text }; }
+}
+
 export async function getJSON(url) {
   const res = await fetch(url, { credentials: 'same-origin' });
   const text = await res.text();
@@ -58,4 +71,4 @@ export async function getActiveDeviceId() {
   return cachedDeviceId
 }
 
-export default { getJSON, postJSON, patchJSON, getActiveDeviceId };
+export default { getJSON, postJSON, patchJSON, deleteJSON, getActiveDeviceId };

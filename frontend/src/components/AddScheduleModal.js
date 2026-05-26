@@ -127,8 +127,8 @@ export default function AddScheduleModal({ open, onClose, onSubmit, isSubmitting
             <span>Feed Amount (kg)</span>
             <input
               type="number"
-              min="0.1"
-              step="0.1"
+              min="0.001"
+              step="0.001"
               value={amountKg}
               onChange={e => setAmountKg(e.target.value)}
               required

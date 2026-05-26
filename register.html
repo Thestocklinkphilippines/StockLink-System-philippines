@@ -74,16 +74,25 @@
 							<label for="password">Password</label>
 							<a class="forgot-link" href="#">Forgot Password?</a>
 						</div>
-							<input id="password" name="password" placeholder="••••••••" required type="password"/>
+							<input id="password" name="password" placeholder="••••••••" required type="password" aria-describedby="password-requirements" title="At least 8 characters with one uppercase letter, one lowercase letter, one number, and one special character"/>
 							<button class="password-toggle" type="button">
 								<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
 							</button>
 					</passwordfield>
 
+					<passwordfield>
+						<div class="password-label-container">
+							<label for="confirm-password">Confirm Password</label>
+						</div>
+							<input id="confirm-password" name="confirm-password" placeholder="••••••••" required type="password" title="Re-enter the same password"/>
+					</passwordfield>
+
+					<p id="password-requirements" class="password-requirements">Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character.</p>
+
 					<div class="terms">
           	<input id="terms-agreed" name="terms-agreed" type="checkbox"/>
           	<label for="terms-agreed">
-							I Agree to the <a href="#" class="terms-link">Terms of Service</a> and <a href="#" class="privacy-link">Privacy Policy</a>
+							I Agree to the <!-- TOS link belongs here --><a href="/terms-of-service" class="terms-link">Terms of Service</a> and <!-- Privacy Policy link belongs here --><a href="/privacy-policy" class="privacy-link">Privacy Policy</a>
 						</label>
         	</div>
 

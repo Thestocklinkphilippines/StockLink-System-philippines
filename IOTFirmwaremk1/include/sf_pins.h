@@ -11,17 +11,21 @@ static const int PIN_WATER_ECHO = 17;
 static const int PIN_LCD_SDA = 21;
 static const int PIN_LCD_SCL = 22;
 
+
 // Analog keypad input
 static const int PIN_KEYPAD_ADC = 32;
+// Battery voltage sense input (ADC1, safe with WiFi)
+static const int PIN_BATTERY_ADC = 33;
 
 // Actuators
 static const int PIN_FEED_MOTOR = 18;
 static const int PIN_WATER_SOLENOID = 19;
+static const int PIN_BATTERY_SHUTDOWN_RELAY = 25;
 
 // Buzzer
 static const int PIN_BUZZER = 23;
 
-// Power failover sense (HIGH = mains present, LOW = mains lost)
+// Power failover sense is read as a digital input (HIGH = mains present, LOW = mains lost)
 static const int PIN_MAINS_SENSE_ADC = 12;
 
 #endif

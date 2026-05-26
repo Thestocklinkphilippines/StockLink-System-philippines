@@ -6,7 +6,6 @@
 #include "sf_network.h"
 #include "sf_pins.h"
 #include "sf_sensors.h"
-#include "sf_simulation.h"
 #include "sf_storage.h"
 #include "sf_utils.h"
 
@@ -34,6 +33,15 @@ static void playFeedingEventTone() {
   noTone(PIN_BUZZER);
 }
 
+static float resolveGrainMsPerKg(JsonVariant cfg) {
+  int selectedIndex = getSelectedGrainTypeIndex(cfg);
+  float resolved = getGrainTypeMsPerKgByIndex(cfg, selectedIndex);
+  if (resolved > 0.0f) {
+    return resolved;
+  }
+  return FEED_MS_PER_KG_STANDARD_PELLETS;
+}
+
 void setFeedMotorEnabled(bool enabled) {
   int activeState = FEED_MOTOR_ACTIVE_HIGH ? HIGH : LOW;
   int idleState = FEED_MOTOR_ACTIVE_HIGH ? LOW : HIGH;
@@ -46,16 +54,8 @@ void setWaterSolenoidEnabled(bool enabled) {
   digitalWrite(PIN_WATER_SOLENOID, enabled ? activeState : idleState);
 }
 
-static float resolveGrainMsPerKg(JsonVariant cfg) {
-  const char* grain = DEFAULT_GRAIN_TYPE;
-  if (!cfg.isNull() && cfg.containsKey("grain_type")) {
-    grain = cfg["grain_type"] | DEFAULT_GRAIN_TYPE;
-  }
-
-  if (strcmp(grain, "pellet_large") == 0) return FEED_MS_PER_KG_PELLET_LARGE;
-  if (strcmp(grain, "crumble") == 0) return FEED_MS_PER_KG_CRUMBLE;
-  if (strcmp(grain, "mash") == 0) return FEED_MS_PER_KG_MASH;
-  return FEED_MS_PER_KG_PELLET_SMALL;
+void setBatteryShutdownRelayEnabled(bool enabled) {
+  digitalWrite(PIN_BATTERY_SHUTDOWN_RELAY, enabled ? HIGH : LOW);
 }
 
 unsigned long computeFeedMotorRunMs(float amountKg, JsonVariant cfg) {
@@ -74,19 +74,12 @@ bool isFeedSufficient(float requiredKg, JsonVariant cfg) {
   float maxCap = getConfigOrDefault(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
   if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
 
-#if SF_SIMULATE_LEVEL_SENSORS
-  // In simulation, feeder percentage is the source of truth for amount remaining.
-  float rem = (clampf(state.simFeederLevelPct, 0.0f, 100.0f) / 100.0f) * maxCap;
-  LOG_DEBUG("Feed sufficiency check required=%.3fkg remaining=%.3fkg (sim)", requiredKg, rem);
-  return rem >= requiredKg;
-#else
   float rem = readRemainingKg();
   if (rem < 0.0f || rem > maxCap * 2.0f) {
     rem = (getFeederLevelPct(cfg) / 100.0f) * maxCap;
   }
   LOG_DEBUG("Feed sufficiency check required=%.3fkg remaining=%.3fkg", requiredKg, rem);
   return rem >= requiredKg;
-#endif
 }
 
 void dispenseFeed(float amountKg, JsonVariant cfg) {
@@ -96,36 +89,21 @@ void dispenseFeed(float amountKg, JsonVariant cfg) {
   float maxCap = getConfigOrDefault(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
   if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
 
-  float rem = 0.0f;
-  float feederPct = 0.0f;
-#if SF_SIMULATE_FEED_MOTOR
-  LOG_INFO("SIM mode: virtual feed dispense executed");
-
-  float simRem = readRemainingKg();
-  if (simRem < 0.0f || simRem > maxCap * 2.0f) {
-    simRem = (clampf(state.simFeederLevelPct, 0.0f, 100.0f) / 100.0f) * maxCap;
-  }
-  simRem -= amountKg;
-  if (simRem < 0.0f) simRem = 0.0f;
-
-  rem = simRem;
-  feederPct = (maxCap > 0.0f) ? clampf((rem / maxCap) * 100.0f, 0.0f, 100.0f) : 0.0f;
-  state.simFeederLevelPct = feederPct;
-#else
   unsigned long runMs = computeFeedMotorRunMs(amountKg, cfg);
+  int selectedIndex = getSelectedGrainTypeIndex(cfg);
   LOG_INFO("Feed motor runMs=%lu amount=%.3fkg grain=%s",
            runMs,
            amountKg,
-           (cfg.isNull() ? DEFAULT_GRAIN_TYPE : (cfg["grain_type"] | DEFAULT_GRAIN_TYPE)));
+           getGrainTypeNameByIndex(cfg, selectedIndex));
   setFeedMotorEnabled(true);
   delayWithKeypadPolling(runMs);
   setFeedMotorEnabled(false);
 
-  rem = readRemainingKg();
+  float rem = readRemainingKg();
   rem -= amountKg;
   if (rem < 0.0f) rem = 0.0f;
-  feederPct = getFeederLevelPct(cfg);
-#endif
+
+  float feederPct = getFeederLevelPct(cfg);
 
   writeRemainingKg(rem);
   addToDailyFeedTotalKg(amountKg);
@@ -133,21 +111,15 @@ void dispenseFeed(float amountKg, JsonVariant cfg) {
   StaticJsonDocument<256> p;
   p["amount_kg"] = amountKg;
   p["remaining_kg"] = rem;
-  p["simulated"] = SF_SIMULATE_FEED_MOTOR ? true : false;
   p["feeder_level_pct"] = feederPct;
   sendLog("feeding", p.as<JsonVariant>());
 }
 
 void attemptRefill(JsonVariant cfg) {
   LOG_INFO("Attempt refill invoked");
-#if SF_SIMULATE_WATER_REFILL
-  state.simWaterLevelPct = clampf(state.simWaterLevelPct + 8.0f, 0.0f, 100.0f);
-  LOG_INFO("SIM refill water pct now=%.1f", state.simWaterLevelPct);
-#else
   setWaterSolenoidEnabled(true);
   delayWithKeypadPolling(4000);
   setWaterSolenoidEnabled(false);
-#endif
 
   float waterPct = getWaterLevelPct(cfg);
   if (waterPct <= 5.0f) {

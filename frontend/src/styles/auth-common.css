@@ -243,6 +243,11 @@
   cursor: pointer;
 }
 
+.auth-page .login-button:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
 .auth-page .login-button-text {
   flex: 1;
   text-align: left;
@@ -252,9 +257,30 @@
   flex-shrink: 0;
 }
 
+.auth-page .auth-button-spinner {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: var(--background-50);
+  border-radius: 50%;
+  animation: auth-spin 0.75s linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .auth-page .auth-error {
   margin: 0;
   color: #ef4444;
+}
+
+.auth-page .auth-success {
+  margin: 0;
+  color: #16a34a;
 }
 
 .auth-page .footer-links {

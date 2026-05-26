@@ -18,10 +18,14 @@ export default function Settings(){
   const [timezone, setTimezone] = useState('')
   const [maxFeedsCapacityKg, setMaxFeedsCapacityKg] = useState('')
   const [maxFeedsCapacityUpdatedAt, setMaxFeedsCapacityUpdatedAt] = useState('')
+  const [grainType, setGrainType] = useState('')
+  const [grainTypes, setGrainTypes] = useState([])
+  const [grainTypeIndex, setGrainTypeIndex] = useState(null)
   const [feederLowThresholdPct, setFeederLowThresholdPct] = useState('')
   const [feederHighThresholdPct, setFeederHighThresholdPct] = useState('')
   const [waterLowThresholdPct, setWaterLowThresholdPct] = useState('')
   const [waterHighThresholdPct, setWaterHighThresholdPct] = useState('')
+  const [lowBatteryShutdownV, setLowBatteryShutdownV] = useState('')
   const [alertFeederLowThresholdPct, setAlertFeederLowThresholdPct] = useState('')
   const [alertFeederHighThresholdPct, setAlertFeederHighThresholdPct] = useState('')
   const [alertWaterLowThresholdPct, setAlertWaterLowThresholdPct] = useState('')
@@ -43,11 +47,15 @@ export default function Settings(){
 
     const refresh = async () => {
       try {
-        const [settingsRes, userRes] = await Promise.all([
+        const activeDeviceId = await api.getActiveDeviceId()
+        const [settingsRes, userRes, deviceRes] = await Promise.all([
           api.getJSON('/api/system/settings/'),
           api.getJSON('/api/auth/user/'),
+          api.getJSON(`/api/device/${activeDeviceId}/config/`),
         ])
         if (!isMounted) return
+
+        const deviceConfig = deviceRes.ok ? deviceRes.body?.config || {} : {}
 
         if (settingsRes.ok) {
           const canHydrateEditableFields = !settingsDirty && !saving && !savingCapacity && !savingThresholds && !savingAlertThresholds && !savingKeywords && !savingRecipients
@@ -59,6 +67,26 @@ export default function Settings(){
             setFeederHighThresholdPct(String(settingsRes.body.feeder_high_threshold_pct ?? ''))
             setWaterLowThresholdPct(String(settingsRes.body.water_low_threshold_pct ?? ''))
             setWaterHighThresholdPct(String(settingsRes.body.water_high_threshold_pct ?? ''))
+            setLowBatteryShutdownV(String(settingsRes.body.low_battery_shutdown_v ?? ''))
+            const grainTypeList = Array.isArray(deviceConfig.grain_types)
+              ? deviceConfig.grain_types
+              : Array.isArray(settingsRes.body.grain_types)
+                ? settingsRes.body.grain_types
+                : []
+            setGrainTypes(grainTypeList)
+            const initialName = deviceConfig.grain_type || settingsRes.body.grain_type || grainTypeList[0]?.grain_type || 'standard_pellets'
+            setGrainType(initialName)
+            // prefer the device config index first, then the system settings index, otherwise derive from name
+            let initialIndex = null
+            if (typeof deviceConfig.grain_type_index === 'number') {
+              initialIndex = deviceConfig.grain_type_index
+            } else if (typeof settingsRes.body.grain_type_index === 'number') {
+              initialIndex = settingsRes.body.grain_type_index
+            } else {
+              initialIndex = grainTypeList.findIndex(item => String(item.grain_type) === String(initialName))
+            }
+            if (initialIndex === -1) initialIndex = 0
+            setGrainTypeIndex(initialIndex)
             setAlertFeederLowThresholdPct(String(settingsRes.body.alert_feeder_low_threshold_pct ?? ''))
             setAlertFeederHighThresholdPct(String(settingsRes.body.alert_feeder_high_threshold_pct ?? ''))
             setAlertWaterLowThresholdPct(String(settingsRes.body.alert_water_low_threshold_pct ?? ''))
@@ -74,7 +102,11 @@ export default function Settings(){
           setServerTimeLocal(settingsRes.body.server_time_local || '')
           setServerTimeUtc(settingsRes.body.server_time_utc || '')
         } else {
-          setError('Failed to load system settings.')
+          if (settingsRes.status === 403) {
+            setError('System settings are only available to ADMIN staff users.')
+          } else {
+            setError('Failed to load system settings.')
+          }
         }
 
         if (userRes.ok && userRes.body && userRes.body.is_authenticated) {
@@ -162,6 +194,12 @@ export default function Settings(){
     const feederHigh = Number(feederHighThresholdPct)
     const waterLow = Number(waterLowThresholdPct)
     const waterHigh = Number(waterHighThresholdPct)
+    const batteryShutdown = Number(lowBatteryShutdownV)
+
+    if (!grainType) {
+      setError('Please select a grain type.')
+      return
+    }
 
     if (!Number.isFinite(feederLow) || feederLow < 0 || feederLow > 100) {
       setError('Feeder low threshold must be between 0 and 100%.')
@@ -179,6 +217,10 @@ export default function Settings(){
       setError('Water high threshold must be between 0 and 100%.')
       return
     }
+    if (!Number.isFinite(batteryShutdown) || batteryShutdown <= 0 || batteryShutdown > 100) {
+      setError('Battery shutdown voltage must be greater than 0 V and at most 100 V.')
+      return
+    }
 
     setSavingThresholds(true)
     setMessage('')
@@ -189,18 +231,34 @@ export default function Settings(){
         feeder_high_threshold_pct: feederHigh,
         water_low_threshold_pct: waterLow,
         water_high_threshold_pct: waterHigh,
+        low_battery_shutdown_v: batteryShutdown,
+        grain_type: grainType,
       })
       if (res.ok) {
         setFeederLowThresholdPct(String(res.body.feeder_low_threshold_pct ?? feederLow))
         setFeederHighThresholdPct(String(res.body.feeder_high_threshold_pct ?? feederHigh))
         setWaterLowThresholdPct(String(res.body.water_low_threshold_pct ?? waterLow))
         setWaterHighThresholdPct(String(res.body.water_high_threshold_pct ?? waterHigh))
+        setLowBatteryShutdownV(String(res.body.low_battery_shutdown_v ?? batteryShutdown))
+        const returnedGrainTypes = Array.isArray(res.body.grain_types) ? res.body.grain_types : grainTypes
+        setGrainTypes(returnedGrainTypes)
+        const returnedName = res.body.grain_type || grainType
+        setGrainType(returnedName)
+        // sync numeric index if provided, otherwise derive from the returned list
+        let returnedIndex = null
+        if (typeof res.body.grain_type_index === 'number') {
+          returnedIndex = res.body.grain_type_index
+        } else {
+          returnedIndex = returnedGrainTypes.findIndex(item => String(item.grain_type) === String(returnedName))
+        }
+        if (returnedIndex === -1) returnedIndex = 0
+        setGrainTypeIndex(returnedIndex)
         setServerTimeLocal(res.body.server_time_local || '')
         setServerTimeUtc(res.body.server_time_utc || '')
         setSettingsDirty(false)
-        setMessage('Refill control thresholds updated.')
+        setMessage('Device thresholds updated.')
       } else {
-        const detail = res.body && (res.body.detail || res.body.feeder_low_threshold_pct || res.body.feeder_high_threshold_pct || res.body.water_low_threshold_pct || res.body.water_high_threshold_pct || JSON.stringify(res.body))
+        const detail = res.body && (res.body.detail || res.body.feeder_low_threshold_pct || res.body.feeder_high_threshold_pct || res.body.water_low_threshold_pct || res.body.water_high_threshold_pct || res.body.low_battery_shutdown_v || res.body.grain_type || JSON.stringify(res.body))
         setError(detail || 'Failed to update thresholds.')
       }
     } catch (err) {
@@ -483,11 +541,45 @@ export default function Settings(){
           )}
         </article>
         <article className="settings-card">
-          <h4>Refill Control Thresholds</h4>
-          <p>Configure low/high thresholds used by the device refill logic. This section does not control alert trigger points.</p>
+          <h4>Device Thresholds</h4>
+          <p>Configure the feed calibration, refill thresholds, and battery shutdown voltage used by the ESP32 runtime.</p>
 
           {loading ? <p className="settings-note">Loading threshold settings...</p> : (
             <>
+              <label className="settings-field" htmlFor="grain-type-select">Grain Type</label>
+              <select
+                id="grain-type-select"
+                className="settings-select"
+                value={grainType}
+                onChange={e => {
+                  const selected = e.target.value
+                  setGrainType(selected)
+                  // keep a numeric index in sync when the user picks by name
+                  const idx = grainTypes.findIndex(item => String(item.grain_type) === String(selected))
+                  setGrainTypeIndex(idx >= 0 ? idx : 0)
+                  setSettingsDirty(true)
+                }}
+                disabled={savingThresholds}
+              >
+                <option value="">Select grain type</option>
+                {grainTypes.map(item => (
+                  <option key={item.grain_type} value={item.grain_type}>
+                    {String(item.grain_type || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())} ({Number(item.feed_ms_per_kg ?? 0).toFixed(1)} ms/kg)
+                  </option>
+                ))}
+              </select>
+
+              {grainType ? (
+                <div className="settings-meta-row">
+                  <span>Selected feed rate</span>
+                  <strong>{Number(
+                    (typeof grainTypeIndex === 'number' && grainTypes[grainTypeIndex] && grainTypes[grainTypeIndex].feed_ms_per_kg != null)
+                      ? grainTypes[grainTypeIndex].feed_ms_per_kg
+                      : (grainTypes.find(item => item.grain_type === grainType)?.feed_ms_per_kg ?? 0)
+                  ).toFixed(1)} ms/kg</strong>
+                </div>
+              ) : null}
+
               <label className="settings-field" htmlFor="feeder-low-threshold">Feeder Low Threshold (%)</label>
               <input
                 id="feeder-low-threshold"
@@ -552,12 +644,28 @@ export default function Settings(){
                 disabled={savingThresholds}
               />
 
+              <label className="settings-field" htmlFor="battery-shutdown-voltage">Battery Shutdown Voltage (V)</label>
+              <input
+                id="battery-shutdown-voltage"
+                className="settings-input"
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.01"
+                value={lowBatteryShutdownV}
+                onChange={e => {
+                  setLowBatteryShutdownV(e.target.value)
+                  setSettingsDirty(true)
+                }}
+                disabled={savingThresholds}
+              />
+
               <button
                 className="settings-save-btn"
                 onClick={saveThresholds}
-                disabled={savingThresholds || feederLowThresholdPct === '' || feederHighThresholdPct === '' || waterLowThresholdPct === '' || waterHighThresholdPct === ''}
+                disabled={savingThresholds || grainType === '' || feederLowThresholdPct === '' || feederHighThresholdPct === '' || waterLowThresholdPct === '' || waterHighThresholdPct === '' || lowBatteryShutdownV === ''}
               >
-                {savingThresholds ? 'Saving...' : 'Save Refill Thresholds'}
+                {savingThresholds ? 'Saving...' : 'Save Device Thresholds'}
               </button>
             </>
           )}

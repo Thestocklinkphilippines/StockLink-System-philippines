@@ -8,7 +8,6 @@
 #include "sf_globals.h"
 #include "sf_network.h"
 #include "sf_sensors.h"
-#include "sf_simulation.h"
 #include "sf_storage.h"
 
 void checkLowFeedPrediction(JsonArray schedules, JsonVariant cfg) {
@@ -105,18 +104,12 @@ void processFeedNowCommand(JsonVariant cfg) {
   const char* status = "failed";
   String reason = "";
 
-  float maxCap = getConfigOrDefault(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
-  if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
-  float maxSingle = getConfigOrDefault(cfg, "max_single_feed_kg", DEFAULT_MAX_SINGLE_FEED_KG);
-  if (maxSingle <= 0.0f) maxSingle = DEFAULT_MAX_SINGLE_FEED_KG;
-  float safeMaxKg = (maxSingle < maxCap) ? maxSingle : maxCap;
+  float safeMaxKg = getMaxSingleFeedKg(cfg);
 
   if (amountKg <= 0.0f) {
     reason = "invalid_amount";
   } else if (amountKg > safeMaxKg) {
     reason = "amount_exceeds_limit";
-  } else if (SF_SIMULATE_FEED_MOTOR) {
-    reason = "simulation_mode_enabled";
   } else if (!isFeedSufficient(amountKg, cfg)) {
     reason = "insufficient_feed";
   } else {
@@ -136,7 +129,7 @@ void processFeedNowCommand(JsonVariant cfg) {
              amountKg,
              reason.c_str(),
              safeMaxKg,
-             maxCap);
+             readRemainingKg());
   }
 
   // Persist dedup watermark even if ack upload fails to avoid duplicate motor runs.
@@ -148,7 +141,7 @@ void processFeedNowCommand(JsonVariant cfg) {
   p["amount_kg"] = amountKg;
   p["status"] = status;
   if (!executeOk) p["reason"] = reason;
-  sendLog("feeding", p.as<JsonVariant>());
+  sendLog("feed_now", p.as<JsonVariant>());
 
   LOG_INFO("feed_now handled id=%lu amount=%.3f status=%s reason=%s",
            (unsigned long)commandId,

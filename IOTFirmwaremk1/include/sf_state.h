@@ -13,8 +13,6 @@ struct RuntimeState {
   unsigned long lastHeartbeatLogMs;
   bool isRefilling;
   bool mainsPowerPresent;
-  float simFeederLevelPct;
-  float simWaterLevelPct;
   float lastFeederLevelPct;
   float lastWaterLevelPct;
   bool buzzerAlarmActive;
@@ -27,6 +25,11 @@ struct RuntimeState {
   unsigned long buzzerResolvedPhaseStartedMs;
   bool pendingPowerOutageAlert;
   bool pendingPowerRestoredAlert;
+  unsigned int bufferedEventCount;
+  bool lowBatteryShutdownPending;
+  bool lowBatteryShutdownTriggered;
+  float lowBatteryShutdownVoltage;
+  unsigned long lowBatteryShutdownDetectedMs;
 };
 
 #endif

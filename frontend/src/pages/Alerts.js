@@ -44,7 +44,7 @@ export default function Alerts(){
 
   return (
     <section className="alerts-page">
-      <h3 className="alerts-title">Notifications & Alerts ({deviceId})</h3>
+      <h3 className="alerts-title">Notifications & Alerts</h3>
       <div className="alerts-card">
         {alerts.length===0 ? <div className="alerts-empty">No alerts.</div> : (
           <ul className="alerts-list">

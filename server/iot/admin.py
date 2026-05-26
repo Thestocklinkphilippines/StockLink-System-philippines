@@ -1,10 +1,54 @@
 from django.contrib import admin
-from .models import Device, DeviceConfig, Alert, Log, SystemSettings, DeviceSensorState
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from .models import Device, DeviceConfig, Alert, Log, DeviceEvent, SystemSettings, DeviceSensorState, UserApproval, AdminRoleVote
 from .models import Schedule
 from .config_sync import sync_schedules_from_payload, sync_thresholds_from_payload
 from django.utils.html import format_html
 import json
 from django import forms
+
+User = get_user_model()
+
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+
+
+@admin.register(User)
+class UserAdmin(DjangoUserAdmin):
+    list_display = ('username', 'email', 'is_staff', 'is_active', 'is_superuser', 'last_login')
+    list_filter = ('is_staff', 'is_active', 'is_superuser', 'groups')
+    search_fields = ('username', 'email', 'first_name', 'last_name')
+    ordering = ('username',)
+    fieldsets = (
+        (None, {'fields': ('username', 'password')}),
+        ('Personal info', {'fields': ('first_name', 'last_name', 'email')}),
+        ('Access', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
+        ('Important dates', {'fields': ('last_login', 'date_joined')}),
+    )
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('username', 'email', 'password1', 'password2', 'is_active', 'is_staff', 'is_superuser'),
+        }),
+    )
+
+
+@admin.register(UserApproval)
+class UserApprovalAdmin(admin.ModelAdmin):
+    list_display = ('user', 'is_approved', 'approved_by', 'approved_at', 'rejected', 'created_at')
+    search_fields = ('user__username', 'user__email')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(AdminRoleVote)
+class AdminRoleVoteAdmin(admin.ModelAdmin):
+    list_display = ('target_user', 'voter', 'vote_type', 'created_at')
+    search_fields = ('target_user__username', 'voter__username')
+    list_filter = ('vote_type',)
+    readonly_fields = ('created_at',)
 
 # weekday choices for admin form
 WEEKDAY_CHOICES = [
@@ -69,6 +113,14 @@ class LogAdmin(admin.ModelAdmin):
     list_filter = ('log_type',)
     search_fields = ('device__device_id', 'log_type')
     ordering = ('-last_updated', '-id')
+
+
+@admin.register(DeviceEvent)
+class DeviceEventAdmin(admin.ModelAdmin):
+    list_display = ('device', 'event_type', 'event_id', 'occurred_at', 'received_at', 'delivery_status')
+    list_filter = ('event_type', 'delivery_status', 'source')
+    search_fields = ('device__device_id', 'event_id', 'event_type', 'boot_id')
+    ordering = ('-occurred_at', '-received_at', '-id')
 
 
 @admin.register(Schedule)
@@ -164,6 +216,7 @@ class SystemSettingsAdmin(admin.ModelAdmin):
     list_display = (
         'timezone',
         'max_feeds_capacity_kg',
+        'grain_type',
         'feeder_low_threshold_pct',
         'feeder_high_threshold_pct',
         'water_low_threshold_pct',
@@ -172,6 +225,7 @@ class SystemSettingsAdmin(admin.ModelAdmin):
         'alert_feeder_high_threshold_pct',
         'alert_water_low_threshold_pct',
         'alert_water_high_threshold_pct',
+        'low_battery_shutdown_v',
         'smtp_email_user',
         'max_feeds_capacity_updated_at',
         'max_feeds_capacity_updated_by',
@@ -183,10 +237,12 @@ class SystemSettingsAdmin(admin.ModelAdmin):
         ('Refill Control Thresholds', {
             'fields': (
                 'max_feeds_capacity_kg',
+                'grain_type',
                 'feeder_low_threshold_pct',
                 'feeder_high_threshold_pct',
                 'water_low_threshold_pct',
                 'water_high_threshold_pct',
+                'low_battery_shutdown_v',
             )
         }),
         ('Alert Trigger Thresholds', {

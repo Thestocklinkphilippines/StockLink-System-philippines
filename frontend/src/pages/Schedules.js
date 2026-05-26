@@ -4,7 +4,7 @@ import { getPollingIntervalMs } from '../pollingConfig'
 import '../styles/schedules.css'
 import AddScheduleModal from '../components/AddScheduleModal'
 
-export default function Schedules(){
+export default function Schedules({ currentUser = null }){
   const pollingIntervalMs = getPollingIntervalMs()
   const [schedules, setSchedules] = useState([])
   const [deviceConfig, setDeviceConfig] = useState(null)
@@ -20,6 +20,7 @@ export default function Schedules(){
   const [feedNowLoading, setFeedNowLoading] = useState(false)
   const [feedNowMessage, setFeedNowMessage] = useState('')
   const [feedNowError, setFeedNowError] = useState('')
+  const isStaff = Boolean(currentUser && currentUser.is_staff)
 
   useEffect(()=>{
     let isMounted = true
@@ -63,6 +64,12 @@ export default function Schedules(){
   },[pollingIntervalMs])
 
   async function submitFeedNowCommand(){
+    if (!isStaff) {
+      setFeedNowError('Only ADMIN staff users can queue feed-now commands.')
+      setFeedNowMessage('')
+      return
+    }
+
     const amount = Number(feedNowAmountKg)
     if (!Number.isFinite(amount) || amount <= 0) {
       setFeedNowError('Feed amount must be greater than 0.')
@@ -77,7 +84,7 @@ export default function Schedules(){
       const res = await api.postJSON(`/api/device/${deviceId}/feed-now/`, { amount_kg: amount })
       if (res.ok) {
         setFeedNowCommands(prev => [res.body, ...prev].slice(0, 20))
-        setFeedNowMessage(`Feed-now command queued: ${amount.toFixed(2)} kg`)
+        setFeedNowMessage(`Feed-now command queued: ${amount.toFixed(3)} kg`)
       } else {
         const detail = res.body && (res.body.detail || res.body.amount_kg || JSON.stringify(res.body))
         setFeedNowError(detail || 'Failed to queue feed-now command.')
@@ -217,7 +224,7 @@ export default function Schedules(){
       <div className="schedules-stats">
         <div className="stat-card">
           <p className="stat-label">Today's Total</p>
-          <p className="stat-value">{displayTotalKg.toFixed(2)}kg</p>
+          <p className="stat-value">{displayTotalKg.toFixed(3)}kg</p>
         </div>
         <div className="stat-card">
           <p className="stat-label">Active Schedules</p>
@@ -301,7 +308,7 @@ export default function Schedules(){
                   </div>
                   <div>
                     <div className="schedule-meta-label">Amount</div>
-                    <div className="schedule-meta-value">{s.feeding_amount_kg}kg</div>
+                    <div className="schedule-meta-value">{Number(s.feeding_amount_kg).toFixed(3)}kg</div>
                   </div>
                 </div>
                 <div className="schedule-actions">
@@ -316,20 +323,20 @@ export default function Schedules(){
         <div className="schedules-feed-now">
           <div className="schedules-feed-now-copy">
             <h4>Need to feed now?</h4>
-            <p>Queue an immediate feed command for this device.</p>
+            <p>{isStaff ? 'Queue an immediate feed command for this device.' : 'Feed-now queueing is restricted to ADMIN staff users.'}</p>
             <div className="feed-now-controls">
               <label htmlFor="feed-now-amount" className="feed-now-label">Amount (kg)</label>
               <input
                 id="feed-now-amount"
                 className="feed-now-input"
                 type="number"
-                min="0.01"
-                step="0.01"
+                min="0.001"
+                step="0.001"
                 value={feedNowAmountKg}
                 onChange={e => setFeedNowAmountKg(e.target.value)}
-                disabled={feedNowLoading}
+                disabled={feedNowLoading || !isStaff}
               />
-              <button className="feed-now-btn" onClick={submitFeedNowCommand} disabled={feedNowLoading || !feedNowAmountKg}>
+              <button className="feed-now-btn" onClick={submitFeedNowCommand} disabled={feedNowLoading || !feedNowAmountKg || !isStaff}>
                 {feedNowLoading ? 'Queueing...' : 'Feed Now'}
               </button>
             </div>
@@ -344,7 +351,7 @@ export default function Schedules(){
               <ul>
                 {feedNowCommands.slice(0, 5).map(cmd => (
                   <li key={cmd.id}>
-                    <span>{Number(cmd.amount_kg).toFixed(2)}kg</span>
+                    <span>{Number(cmd.amount_kg).toFixed(3)}kg</span>
                     <span className={`feed-now-status feed-now-status-${cmd.status}`}>{formatFeedNowStatus(cmd.status)}</span>
                   </li>
                 ))}

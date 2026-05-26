@@ -2,12 +2,13 @@
 
 #include <WiFi.h>
 
+#include "sf_adc.h"
 #include "sf_config.h"
 #include "sf_debug.h"
+#include "keypad_calc.h"
 #include "sf_globals.h"
 #include "sf_network.h"
 #include "sf_pins.h"
-#include "sf_simulation.h"
 #include "sf_storage.h"
 #include "sf_utils.h"
 
@@ -38,10 +39,22 @@ int gKeypadCenters[16] = {
 
 int gKeypadNoKeyMin = KEYPAD_ADC_NO_KEY_MIN;
 bool gKeypadIdleIsLow = false;
-int gKeypadIdleThreshold = 0;
 bool gKeypadCalibrationLoaded = false;
 unsigned long gLastKeypadCalibrationLoadMs = 0;
 bool gKeypadInputEnabled = SF_ENABLE_KEYPAD_INPUT != 0;
+
+static KeypadAdcTuning buildDefaultKeypadTuning() {
+  KeypadAdcTuning tuning;
+  tuning.toleranceAdc = KEYPAD_ADC_TOLERANCE;
+  tuning.releaseHysteresisAdc = KEYPAD_ADC_RELEASE_HYSTERESIS;
+  tuning.idleBandAdc = KEYPAD_IDLE_BAND_ADC;
+  tuning.windowEdgePadAdc = KEYPAD_WINDOW_EDGE_PAD_ADC;
+  tuning.adcOffset = KEYPAD_ADC_OFFSET;
+  tuning.samples = KEYPAD_RUNTIME_SAMPLES;
+  return tuning;
+}
+
+KeypadAdcTuning gKeypadTuning = buildDefaultKeypadTuning();
 
 char gLastStableKey = '\0';
 char gLastCandidateKey = '\0';
@@ -62,14 +75,9 @@ static void enqueueKeyEvent(char key) {
   gKeyEventCount++;
 }
 
-static int sampleKeypadAdcAverageRuntime() {
-  long total = 0;
-  const int samples = (KEYPAD_RUNTIME_SAMPLES <= 0) ? 1 : KEYPAD_RUNTIME_SAMPLES;
-  for (int i = 0; i < samples; i++) {
-    total += analogRead(PIN_KEYPAD_ADC);
-    delayMicroseconds(500);
-  }
-  return (int)(total / samples);
+// Adapter used by the extracted keypad calculator: returns a single fresh ADC reading.
+static int keypadAdcReader() {
+  return readAdcFast(PIN_KEYPAD_ADC);
 }
 
 static bool hasValidMonotonicCenters(const int* values, int count) {
@@ -97,7 +105,7 @@ void reloadKeypadCalibration() {
   DynamicJsonDocument d(8192);
   DeserializationError err = deserializeJson(d, cfg);
   if (err) {
-    LOG_WARN("Keypad calibration reload skipped; config parse error: %s", err.c_str());
+    LOG_KEYPAD_WARN("Keypad calibration reload skipped; config parse error: %s", err.c_str());
     return;
   }
 
@@ -113,11 +121,19 @@ void reloadKeypadCalibration() {
   if (cfgRoot.isNull()) cfgRoot = root;
 
   // Runtime enable flag is independent from calibration; load it whenever config is readable.
-  gKeypadInputEnabled = cfgRoot["keypad_input_enabled"] | gKeypadInputEnabled;
+  bool keypadEnabled = cfgRoot["keypad_input_enabled"] | gKeypadInputEnabled;
+  if (cfgRoot.containsKey("keypad_calibration")) {
+    JsonVariant kcEnable = cfgRoot["keypad_calibration"];
+    keypadEnabled = kcEnable["enabled"] | keypadEnabled;
+  }
+  gKeypadInputEnabled = keypadEnabled;
+
+  LOG_KEYPAD_INFO("Keypad config reload enabled=%d has_cal=%d", (int)gKeypadInputEnabled, (int)cfgRoot.containsKey("keypad_calibration"));
 
   JsonVariant kc = cfgRoot["keypad_calibration"];
   if (kc.isNull()) {
     // Keep the last known-good calibration instead of falling back to defaults.
+    resetKeypadCalcState();
     return;
   }
 
@@ -128,8 +144,11 @@ void reloadKeypadCalibration() {
 
   int noKey = kc["no_key_adc"] | gKeypadNoKeyMin;
   bool idleLow = kc["idle_is_low"] | gKeypadIdleIsLow;
+  if (noKey <= 16) {
+    idleLow = true;
+  }
   if (!hasValidMonotonicCenters(loaded, 16)) {
-    LOG_WARN("Keypad calibration reload skipped; stored centers are invalid");
+    LOG_KEYPAD_WARN("Keypad calibration reload skipped; stored centers are invalid");
     return;
   }
 
@@ -139,7 +158,7 @@ void reloadKeypadCalibration() {
   for (int i = 0; i < 16; i++) gKeypadCenters[i] = loaded[i];
   gKeypadNoKeyMin = noKey;
   gKeypadIdleIsLow = idleLow;
-  gKeypadIdleThreshold = noKey;
+  resetKeypadCalcState();
 }
 
 bool isKeypadInputEnabled() {
@@ -180,42 +199,55 @@ float distanceToLevelPct(float distanceCm, float tankDepthCm) {
   return clampf(levelPct, 0.0f, 100.0f);
 }
 
+static float distanceToLevelPctInRange(float distanceCm, float bottomDistanceCm, float fullDistanceCm) {
+  if (distanceCm < 0.0f) return 0.0f;
+  if (bottomDistanceCm <= 0.0f) return 0.0f;
+
+  float boundedBottom = bottomDistanceCm;
+  float boundedFull = fullDistanceCm;
+  if (boundedFull < 0.0f) boundedFull = 0.0f;
+  if (boundedFull >= boundedBottom) {
+    return distanceToLevelPct(distanceCm, boundedBottom);
+  }
+
+  float boundedDistance = clampf(distanceCm, boundedFull, boundedBottom);
+  float usableSpan = boundedBottom - boundedFull;
+  if (usableSpan <= 0.0f) return distanceToLevelPct(distanceCm, boundedBottom);
+
+  float levelPct = ((boundedBottom - boundedDistance) / usableSpan) * 100.0f;
+  return clampf(levelPct, 0.0f, 100.0f);
+}
+
 float getFeederLevelPct(JsonVariant cfg) {
-#if SF_SIMULATE_FEEDER_LEVEL_SENSOR
-  float maxCap = getConfigOrDefault(cfg, "max_feeds_capacity_kg", DEFAULT_MAX_FEEDS_CAPACITY_KG);
-  if (maxCap <= 0.0f) maxCap = DEFAULT_MAX_FEEDS_CAPACITY_KG;
-
-  float remKg = readRemainingKg();
-  if (remKg < 0.0f) remKg = 0.0f;
-  remKg = clampf(remKg, 0.0f, maxCap);
-
-  state.simFeederLevelPct = (maxCap > 0.0f) ? clampf((remKg / maxCap) * 100.0f, 0.0f, 100.0f) : 0.0f;
-  state.lastFeederLevelPct = state.simFeederLevelPct;
-  LOG_DEBUG("SIM feeder level=%.1f remaining=%.3fkg max=%.3fkg", state.simFeederLevelPct, remKg, maxCap);
-  return state.simFeederLevelPct;
-#else
-  float tankDepth = getConfigOrDefault(cfg, "feeder_tank_depth_cm", FEEDER_TANK_DEPTH_CM);
+  float bottomDistance = getConfigOrDefault(
+      cfg,
+      "feeder_tank_bottom_distance_cm",
+      getConfigOrDefault(cfg, "feeder_tank_depth_cm", FEEDER_TANK_DEPTH_CM));
+  float fullDistance = getConfigOrDefault(
+      cfg,
+      "feeder_tank_full_distance_cm",
+      getConfigOrDefault(cfg, "feeder_max_feed_height_cm", FEEDER_MAX_FEED_HEIGHT_CM));
   float d = measureDistanceCm(PIN_FEEDER_TRIG, PIN_FEEDER_ECHO);
+  SFMultiConsole.systemPrintf("[FEEDER RAW] distance_cm=%.2f bottom_cm=%.2f full_cm=%.2f\n",
+                              d,
+                              bottomDistance,
+                              fullDistance);
   if (d < MIN_VALID_DISTANCE_CM || d > MAX_VALID_DISTANCE_CM) {
     LOG_WARN("Feeder ultrasonic out-of-range %.2fcm", d);
     state.lastFeederLevelPct = 0.0f;
     return 0.0f;
   }
-  float pct = distanceToLevelPct(d, tankDepth);
+  float pct = distanceToLevelPctInRange(d, bottomDistance, fullDistance);
   state.lastFeederLevelPct = pct;
-  LOG_DEBUG("Feeder ultrasonic dist=%.2fcm depth=%.2fcm pct=%.1f", d, tankDepth, pct);
+  LOG_DEBUG("Feeder ultrasonic dist=%.2fcm bottom=%.2fcm full=%.2fcm pct=%.1f",
+            d,
+            bottomDistance,
+            fullDistance,
+            pct);
   return pct;
-#endif
 }
 
 float getWaterLevelPct(JsonVariant cfg) {
-#if SF_SIMULATE_WATER_LEVEL_SENSOR
-  float drift = state.isRefilling ? 0.8f : -0.05f;
-  state.simWaterLevelPct = clampf(state.simWaterLevelPct + drift, 0.0f, 100.0f);
-  state.lastWaterLevelPct = state.simWaterLevelPct;
-  LOG_DEBUG("SIM water level=%.1f", state.simWaterLevelPct);
-  return state.simWaterLevelPct;
-#else
   float tankDepth = getConfigOrDefault(cfg, "water_tank_depth_cm", WATER_TANK_DEPTH_CM);
   float d = measureDistanceCm(PIN_WATER_TRIG, PIN_WATER_ECHO);
   if (d < MIN_VALID_DISTANCE_CM || d > MAX_VALID_DISTANCE_CM) {
@@ -227,37 +259,69 @@ float getWaterLevelPct(JsonVariant cfg) {
   state.lastWaterLevelPct = pct;
   LOG_DEBUG("Water ultrasonic dist=%.2fcm depth=%.2fcm pct=%.1f", d, tankDepth, pct);
   return pct;
-#endif
+}
+
+float getBatteryVoltageV(JsonVariant cfg) {
+  bool enabled = cfg.isNull() ? true : (cfg["battery_sense_enabled"] | true);
+  if (!enabled) return -1.0f;
+
+  int adcPin = cfg.isNull() ? BATTERY_ADC_PIN : (cfg["battery_adc_pin"] | BATTERY_ADC_PIN);
+  float dividerTop = cfg.isNull() ? BATTERY_DIVIDER_TOP_OHMS : (cfg["battery_divider_top_ohms"] | BATTERY_DIVIDER_TOP_OHMS);
+  float dividerBottom = cfg.isNull() ? BATTERY_DIVIDER_BOTTOM_OHMS : (cfg["battery_divider_bottom_ohms"] | BATTERY_DIVIDER_BOTTOM_OHMS);
+  float adcRefV = cfg.isNull() ? BATTERY_ADC_REFERENCE_V : (cfg["battery_adc_reference_v"] | BATTERY_ADC_REFERENCE_V);
+  float gainCorrection = cfg.isNull() ? BATTERY_ADC_GAIN_CORRECTION : (cfg["battery_adc_gain_correction"] | BATTERY_ADC_GAIN_CORRECTION);
+
+  if (dividerTop <= 0.0f || dividerBottom <= 0.0f || adcRefV <= 0.0f || gainCorrection <= 0.0f) {
+    LOG_WARN("Battery sense config invalid top=%.1f bottom=%.1f ref=%.2f gain=%.3f",
+             dividerTop,
+             dividerBottom,
+             adcRefV,
+             gainCorrection);
+    return -1.0f;
+  }
+
+  int raw = readAdcReliable(adcPin, ADC_PRIORITY_NORMAL);
+  if (raw < 0) {
+    LOG_WARN("Battery ADC read failed pin=%d", adcPin);
+    return -1.0f;
+  }
+
+  float adcVoltage = ((float)raw / 4095.0f) * adcRefV;
+  float batteryVoltage = adcVoltage * ((dividerTop + dividerBottom) / dividerBottom) * gainCorrection;
+  LOG_DEBUG("Battery sense pin=%d raw=%d adcV=%.3f battV=%.3f gain=%.3f",
+            adcPin,
+            raw,
+            adcVoltage,
+            batteryVoltage,
+            gainCorrection);
+  return batteryVoltage;
 }
 
 char decodeKeypadAnalog(int adc) {
   if (!gKeypadCalibrationLoaded) reloadKeypadCalibration();
 
+  int adjustedAdc = adc + gKeypadTuning.adcOffset;
+  if (adjustedAdc < 0) adjustedAdc = 0;
+  if (adjustedAdc > 4095) adjustedAdc = 4095;
+
   if (gKeypadIdleIsLow) {
-    if (adc <= gKeypadIdleThreshold + KEYPAD_IDLE_BAND_ADC) return '\0';
+    if (adjustedAdc <= gKeypadNoKeyMin + gKeypadTuning.idleBandAdc) return '\0';
   } else {
-    if (adc >= gKeypadIdleThreshold - KEYPAD_IDLE_BAND_ADC) return '\0';
+    if (adjustedAdc >= gKeypadNoKeyMin - gKeypadTuning.idleBandAdc) return '\0';
   }
 
-  int nearestIdx = -1;
-  int nearestDist = 4096;
+  int bestIndex = -1;
+  int bestDelta = 4096;
   for (int i = 0; i < 16; i++) {
-    int d = abs(adc - gKeypadCenters[i]);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearestIdx = i;
+    int delta = abs(adjustedAdc - gKeypadCenters[i]);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestIndex = i;
     }
   }
 
-  if (nearestIdx < 0) return '\0';
-
-  int tolerance = KEYPAD_MATCH_TOLERANCE_ADC;
-  if (gLastStableKey != '\0' && kKeypadKeys[nearestIdx] == gLastStableKey) {
-    tolerance += KEYPAD_SAME_KEY_HYSTERESIS_ADC;
-  }
-  if (nearestDist > tolerance) return '\0';
-
-  return kKeypadKeys[nearestIdx];
+  if (bestIndex < 0) return '\0';
+  return (bestDelta <= gKeypadTuning.toleranceAdc) ? kKeypadKeys[bestIndex] : '\0';
 }
 
 void pollKeypad() {
@@ -267,8 +331,28 @@ void pollKeypad() {
     reloadKeypadCalibration();
   }
 
-  int adc = sampleKeypadAdcAverageRuntime();
-  char candidate = decodeKeypadAnalog(adc);
+  // Use extracted calculator which may perform its own sampling/averaging.
+  int rawAdc = 0;
+  int adjustedAdc = 0;
+  int appliedOffset = 0;
+  char candidate = calculateKeypadKey(keypadAdcReader,
+                                      gKeypadCenters,
+                                      gKeypadNoKeyMin,
+                                      gKeypadIdleIsLow,
+                                      gKeypadTuning,
+                                      &rawAdc,
+                                      &adjustedAdc,
+                                      &appliedOffset);
+
+  char disp = (candidate == '\0') ? '-' : candidate;
+  LOG_KEYPAD_INFO("poll raw=%d adjusted=%d offset=%d enabled=%d idle_is_low=%d no_key_min=%d cand=%c",
+                  rawAdc,
+                  adjustedAdc,
+                  appliedOffset,
+                  (int)gKeypadInputEnabled,
+                  (int)gKeypadIdleIsLow,
+                  gKeypadNoKeyMin,
+                  disp);
 
   if (candidate == gLastCandidateKey) {
     if (gCandidateStablePolls < 250U) gCandidateStablePolls++;
@@ -287,7 +371,18 @@ void pollKeypad() {
   if ((nowMs - gLastKeyEventMs) < KEYPAD_EVENT_DEBOUNCE_MS) return;
   gLastKeyEventMs = nowMs;
 
-  LOG_INFO("Keypad key=%c adc=%d", candidate, adc);
+  LOG_KEYPAD_INFO("Keypad key=%c raw=%d adjusted=%d offset=%d samples=%d",
+                  candidate,
+                  rawAdc,
+                  adjustedAdc,
+                  appliedOffset,
+                  gKeypadTuning.samples);
+  Serial.printf("[INFO] Keypad key=%c raw=%d adjusted=%d offset=%d samples=%d\n",
+                candidate,
+                rawAdc,
+                adjustedAdc,
+                appliedOffset,
+                gKeypadTuning.samples);
   enqueueKeyEvent(candidate);
   if (candidate == 'A' && SF_SEND_KEYPAD_LOGS) {
     StaticJsonDocument<64> p;
@@ -306,15 +401,67 @@ char consumeKeypadKeyEvent() {
 }
 
 bool readMainsPowerPresent() {
-#if SF_SIMULATE_MAINS_INPUT
-  return state.mainsPowerPresent;
-#else
   int raw = digitalRead(PIN_MAINS_SENSE_ADC);
   bool mainsLoss = MAINS_LOSS_SIGNAL_ACTIVE_HIGH ? (raw == HIGH) : (raw == LOW);
   bool present = !mainsLoss;
   LOG_DEBUG("Mains digital=%d loss=%d present=%d", raw, mainsLoss ? 1 : 0, present ? 1 : 0);
   return present;
-#endif
+}
+
+static bool loadPersistedMainsPowerPresent(bool& present) {
+  if (!prefs.begin(PREF_NAMESPACE, true)) {
+    LOG_ERROR("Preferences begin(read mains state) failed");
+    return false;
+  }
+
+  bool hasKey = prefs.isKey(PREF_MAINS_POWER_PRESENT);
+  present = prefs.getBool(PREF_MAINS_POWER_PRESENT, false);
+  prefs.end();
+  return hasKey;
+}
+
+static void savePersistedMainsPowerPresent(bool present) {
+  if (!prefs.begin(PREF_NAMESPACE, false)) {
+    LOG_ERROR("Preferences begin(write mains state) failed");
+    return;
+  }
+
+  prefs.putBool(PREF_MAINS_POWER_PRESENT, present);
+  prefs.end();
+}
+
+void reconcilePowerAlertStateOnBoot() {
+  bool currentPresent = readMainsPowerPresent();
+  bool persistedPresent = currentPresent;
+  bool hadPersistedState = loadPersistedMainsPowerPresent(persistedPresent);
+
+  state.mainsPowerPresent = currentPresent;
+  state.pendingPowerOutageAlert = false;
+  state.pendingPowerRestoredAlert = false;
+
+  if (!hadPersistedState) {
+    savePersistedMainsPowerPresent(currentPresent);
+    LOG_INFO("Boot power state initialized present=%d", currentPresent ? 1 : 0);
+    return;
+  }
+
+  if (persistedPresent == currentPresent) {
+    LOG_INFO("Boot power state unchanged present=%d", currentPresent ? 1 : 0);
+    return;
+  }
+
+  savePersistedMainsPowerPresent(currentPresent);
+
+  if (currentPresent) {
+    LOG_INFO("Boot detected mains restored after outage");
+    sendAlert("power_restored");
+    StaticJsonDocument<128> p;
+    p["event"] = "mains_restored";
+    sendLog("power", p.as<JsonVariant>());
+  } else {
+    LOG_WARN("Boot detected mains outage while device restarted on battery");
+    sendAlert("power_outage");
+  }
 }
 
 static void trySendPendingPowerAlerts() {
@@ -337,6 +484,7 @@ void handlePowerFailMonitoring() {
 
   if (nowPresent != state.mainsPowerPresent) {
     state.mainsPowerPresent = nowPresent;
+    savePersistedMainsPowerPresent(nowPresent);
     if (!nowPresent) {
       LOG_WARN("Power outage detected (UPS active)");
       tone(PIN_BUZZER, 2500, 250);
@@ -358,27 +506,30 @@ void handlePowerFailMonitoring() {
 void reportSensorLevels(JsonVariant cfg) {
   float feederLevel = getFeederLevelPct(cfg);
   float waterLevel = getWaterLevelPct(cfg);
-
-  if (!WiFi.isConnected()) {
-    LOG_WARN("Skipping sensor upload; WiFi disconnected");
-    return;
-  }
+  float batteryVoltage = getBatteryVoltageV(cfg);
 
   String url = String(SERVER_BASE) + "/device/" + DEVICE_ID + "/sensor-state/";
 
   StaticJsonDocument<512> doc;
   doc["feeder_level_pct"] = feederLevel;
   doc["water_level_pct"] = waterLevel;
+  if (batteryVoltage >= 0.0f) {
+    doc["battery_voltage_v"] = batteryVoltage;
+  }
   doc["mains_power_present"] = state.mainsPowerPresent;
   doc["timestamp"] = getUtcIsoNow();
-  doc["simulated"] = (SF_SIMULATE_FEEDER_LEVEL_SENSOR || SF_SIMULATE_WATER_LEVEL_SENSOR) ? true : false;
-  doc["simulated_feeder"] = SF_SIMULATE_FEEDER_LEVEL_SENSOR ? true : false;
-  doc["simulated_water"] = SF_SIMULATE_WATER_LEVEL_SENSOR ? true : false;
 
   String body;
   serializeJson(doc, body);
   String resp;
   bool ok = httpPostJson(url, body, resp);
-  LOG_INFO("Sensor report ok=%d feeder=%.1f water=%.1f", ok ? 1 : 0, feederLevel, waterLevel);
-  if (!ok) LOG_WARN("Sensor report response: %s", resp.c_str());
+  LOG_INFO("Sensor report ok=%d feeder=%.1f water=%.1f batt=%.2f", ok ? 1 : 0, feederLevel, waterLevel, batteryVoltage);
+  if (!ok) {
+    if (!WiFi.isConnected()) {
+      LOG_WARN("Skipping sensor upload; WiFi disconnected");
+    } else {
+      LOG_WARN("Sensor report response: %s", resp.c_str());
+    }
+    queueBufferedRequest(url.substring(String(SERVER_BASE).length()), body, "sensor_state", false);
+  }
 }

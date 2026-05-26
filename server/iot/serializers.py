@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
-from .models import Device, DeviceConfig, Alert, Log, DeviceSensorState, FeedNowCommand
+from .models import Device, DeviceConfig, Alert, Log, DeviceEvent, DeviceSensorState, FeedNowCommand
 from zoneinfo import ZoneInfo
 
 from .models import Schedule
@@ -26,12 +26,30 @@ class ScheduleSerializer(serializers.ModelSerializer):
 class AlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = Alert
-        fields = ['id', 'device', 'alert_type', 'timestamp', 'last_updated', 'refresh_count', 'resolved']
+        fields = ['id', 'device', 'alert_type', 'timestamp', 'last_updated', 'refresh_count', 'resolved', 'payload']
 
 class LogSerializer(serializers.ModelSerializer):
     class Meta:
         model = Log
-        fields = ['id', 'device', 'log_type', 'payload', 'timestamp', 'last_updated', 'refresh_count']
+        fields = ['id', 'device', 'log_type', 'log_category', 'payload', 'timestamp', 'last_updated', 'refresh_count']
+
+
+class DeviceEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeviceEvent
+        fields = [
+            'id',
+            'device',
+            'event_id',
+            'event_type',
+            'occurred_at',
+            'received_at',
+            'boot_id',
+            'sequence',
+            'source',
+            'payload',
+            'delivery_status',
+        ]
 
 
 class SystemSettingsSerializer(serializers.ModelSerializer):
@@ -40,6 +58,8 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
         fields = [
             'timezone',
             'max_feeds_capacity_kg',
+            'grain_type',
+            'grain_types',
             'feeder_low_threshold_pct',
             'feeder_high_threshold_pct',
             'water_low_threshold_pct',
@@ -48,6 +68,7 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
             'alert_feeder_high_threshold_pct',
             'alert_water_low_threshold_pct',
             'alert_water_high_threshold_pct',
+            'low_battery_shutdown_v',
             'important_log_keywords',
             'alert_recipients',
             'smtp_email_user',
@@ -55,7 +76,7 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
             'max_feeds_capacity_updated_by',
             'updated_at',
         ]
-        read_only_fields = ['max_feeds_capacity_updated_at', 'max_feeds_capacity_updated_by', 'updated_at']
+        read_only_fields = ['grain_types', 'max_feeds_capacity_updated_at', 'max_feeds_capacity_updated_by', 'updated_at']
 
     def validate_timezone(self, value):
         try:
@@ -69,6 +90,17 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Max feeds capacity is required.')
         if value <= 0:
             raise serializers.ValidationError('Max feeds capacity must be greater than 0.')
+        return value
+
+    def validate_grain_type(self, value):
+        settings_obj = self.instance or SystemSettings.get_effective()
+        available_types = {
+            str(item.get('grain_type') or '')
+            for item in (settings_obj.get_grain_types() if hasattr(settings_obj, 'get_grain_types') else [])
+            if isinstance(item, dict)
+        }
+        if value not in available_types:
+            raise serializers.ValidationError('Invalid grain type.')
         return value
 
     def validate_feeder_low_threshold_pct(self, value):
@@ -109,6 +141,13 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
     def validate_alert_water_high_threshold_pct(self, value):
         if value < 0 or value > 100:
             raise serializers.ValidationError('Alert water high threshold must be between 0 and 100.')
+        return value
+
+    def validate_low_battery_shutdown_v(self, value):
+        if value is None:
+            raise serializers.ValidationError('Low battery shutdown voltage is required.')
+        if value <= 0 or value > 100:
+            raise serializers.ValidationError('Low battery shutdown voltage must be greater than 0 and at most 100.')
         return value
 
     def validate_important_log_keywords(self, value):
@@ -159,7 +198,16 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
 class DeviceSensorStateSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceSensorState
-        fields = ['feeder_level_pct', 'water_level_pct', 'last_reported_at', 'updated_at']
+        fields = [
+            'feeder_level_pct',
+            'water_level_pct',
+            'battery_voltage_v',
+            'feed_sufficient',
+            'feed_current_kg',
+            'feed_required_next_kg',
+            'last_reported_at',
+            'updated_at',
+        ]
         read_only_fields = ['updated_at']
 
 

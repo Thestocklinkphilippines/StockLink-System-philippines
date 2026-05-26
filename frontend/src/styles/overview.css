@@ -218,6 +218,10 @@
   gap: 0.55rem;
 }
 
+.overview-side-kpi-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .overview-side-kpi-label {
   display: block;
   font-size: 0.7rem;
@@ -245,6 +249,9 @@
   color: #fecaca;
   border: 1px solid color-mix(in srgb, #ef4444 55%, transparent);
   background: color-mix(in srgb, #ef4444 32%, transparent);
+}
+
+.overview-heartbeat-pulse.pulse-animate {
   animation: heartbeatPulseFade 15s ease-out forwards;
 }
 
@@ -265,13 +272,13 @@
   }
   12% {
     transform: scale(1);
-    box-shadow: 0 0 0 8px color-mix(in srgb, #ef4444 0%, transparent);
+    box-shadow: 0 0 0 8px color-mix(in srgb, #d67f7f 0%, transparent);
   }
   100% {
-    color: var(--text-700);
-    border-color: color-mix(in srgb, #ef4444 20%, transparent);
-    background: color-mix(in srgb, #ef4444 8%, transparent);
-    box-shadow: 0 0 0 0 color-mix(in srgb, #ef4444 0%, transparent);
+    color: #ccb1b1;
+    border-color: color-mix(in srgb, #b97171 16%, transparent);
+    background: color-mix(in srgb, #b97171 7%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, #b97171 0%, transparent);
     transform: scale(1);
   }
 }
@@ -321,6 +328,36 @@
 
 .sensor-level-display {
   margin: 0.75rem 0;
+}
+
+.overview-sensor-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+}
+
+.overview-sensor-stat {
+  border-radius: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--secondary) 28%, var(--background));
+  background: color-mix(in srgb, var(--background) 74%, var(--accent));
+  padding: 0.7rem 0.8rem;
+}
+
+.overview-sensor-stat span {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-700);
+}
+
+.overview-sensor-stat strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .sensor-level-bar {
@@ -399,6 +436,10 @@
   }
 
   .overview-sensor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-sensor-stats {
     grid-template-columns: 1fr;
   }
 

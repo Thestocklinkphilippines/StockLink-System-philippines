@@ -7,3 +7,6 @@ class IotConfig(AppConfig):
     def ready(self):
         # Register model signal handlers.
         from . import signals  # noqa: F401
+        from .connection_monitor import start_device_connection_monitor
+
+        start_device_connection_monitor()

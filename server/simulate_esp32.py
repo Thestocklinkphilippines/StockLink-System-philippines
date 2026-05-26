@@ -134,6 +134,7 @@ def load_state(path):
             'feeder_high_threshold_pct': 80.0,
             'water_low_threshold_pct': 20.0,
             'water_high_threshold_pct': 80.0,
+            'low_battery_shutdown_v': 10.0,
             'max_feeds_capacity_updated_at': utc_iso_now(),
             'max_feeds_capacity_updated_by': 'esp32-sim',
             'feeder_level_pct': 100.0,
@@ -152,6 +153,7 @@ def load_state(path):
             'feeder_high_threshold_pct': 80.0,
             'water_low_threshold_pct': 20.0,
             'water_high_threshold_pct': 80.0,
+            'low_battery_shutdown_v': 10.0,
             'max_feeds_capacity_updated_at': utc_iso_now(),
             'max_feeds_capacity_updated_by': 'esp32-sim',
             'feeder_level_pct': 100.0,
@@ -215,6 +217,7 @@ def sync_once(
             'feeder_high_threshold_pct',
             'water_low_threshold_pct',
             'water_high_threshold_pct',
+            'low_battery_shutdown_v',
             'max_feeds_capacity_updated_at',
             'max_feeds_capacity_updated_by',
         ):

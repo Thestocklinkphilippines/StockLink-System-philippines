@@ -2,6 +2,8 @@
 #define SF_DEBUG_H
 
 #include "sf_config.h"
+#include "sf_wireless_console.h"
+#include "sf_multi_console.h"
 
 extern bool gSerialConsoleExclusive;
 
@@ -16,5 +18,14 @@ extern bool gSerialConsoleExclusive;
   #define LOG_ERROR(fmt, ...)
   #define LOG_DEBUG(fmt, ...)
 #endif
+
+// System alert routing to dedicated port (always shown, not muted by console exclusive mode)
+#define LOG_SYSTEM_ALERT(fmt, ...) do { SFMultiConsole.systemPrintf("[ALERT] " fmt "\n", ##__VA_ARGS__); } while (0)
+#define LOG_SYSTEM_EVENT(fmt, ...) do { SFMultiConsole.systemPrintf("[EVENT] " fmt "\n", ##__VA_ARGS__); } while (0)
+
+// Keypad routing to dedicated keypad port
+#define LOG_KEYPAD_INFO(fmt, ...) do { SFMultiConsole.keypadPrintf("[INFO] " fmt "\n", ##__VA_ARGS__); } while (0)
+#define LOG_KEYPAD_WARN(fmt, ...) do { SFMultiConsole.keypadPrintf("[WARN] " fmt "\n", ##__VA_ARGS__); } while (0)
+#define LOG_KEYPAD_ERROR(fmt, ...) do { SFMultiConsole.keypadPrintf("[ERR ] " fmt "\n", ##__VA_ARGS__); } while (0)
 
 #endif

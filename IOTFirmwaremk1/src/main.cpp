@@ -6,20 +6,88 @@
 #include <time.h>
 
 #include "sf_actuators.h"
+#include "sf_adc.h"
 #include "sf_config.h"
 #include "sf_control_panel.h"
 #include "sf_debug.h"
 #include "sf_globals.h"
+#include "sf_multi_console.h"
 #include "sf_network.h"
 #include "sf_pins.h"
 #include "sf_scheduler.h"
 #include "sf_sensors.h"
 #include "sf_serial.h"
-#include "sf_simulation.h"
 #include "sf_storage.h"
 #include "sf_utils.h"
 
 static LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, LCD_COLS, LCD_ROWS);
+// Use compile-time constant from configuration header
+
+static unsigned long gLastGrainTypeVerboseMs = 0;
+
+static void setShutdownRelayOpen(bool open) {
+  digitalWrite(PIN_BATTERY_SHUTDOWN_RELAY, open ? HIGH : LOW);
+}
+
+static void initShutdownRelay() {
+  pinMode(PIN_BATTERY_SHUTDOWN_RELAY, OUTPUT);
+  setShutdownRelayOpen(false);
+  LOG_INFO("Shutdown relay initialized pin=%d activeHigh=1", PIN_BATTERY_SHUTDOWN_RELAY);
+}
+
+static bool isLowBatteryShutdownRequired(JsonVariant cfg, float& batteryVoltage) {
+  batteryVoltage = getBatteryVoltageV(cfg);
+  if (batteryVoltage < 0.0f) return false;
+  return batteryVoltage <= DEFAULT_LOW_BATTERY_SHUTDOWN_V;
+}
+
+static void markLowBatteryShutdownPending(float batteryVoltage, unsigned long nowMs) {
+  if (state.lowBatteryShutdownPending) return;
+  state.lowBatteryShutdownPending = true;
+  state.lowBatteryShutdownTriggered = false;
+  state.lowBatteryShutdownVoltage = batteryVoltage;
+  state.lowBatteryShutdownDetectedMs = nowMs;
+  LOG_WARN("Low battery detected batt=%.2fV threshold=%.2fV; preparing shutdown",
+           batteryVoltage,
+           DEFAULT_LOW_BATTERY_SHUTDOWN_V);
+}
+
+static bool serviceLowBatteryShutdown(JsonVariant cfg, unsigned long nowMs) {
+  float batteryVoltage = -1.0f;
+  if (!state.lowBatteryShutdownPending) {
+    if (!isLowBatteryShutdownRequired(cfg, batteryVoltage)) return false;
+    markLowBatteryShutdownPending(batteryVoltage, nowMs);
+  }
+
+  serviceBufferedOutbox();
+
+  if (!state.lowBatteryShutdownTriggered) {
+    StaticJsonDocument<256> payload;
+    payload["event"] = "low_battery_shutdown";
+    payload["battery_voltage_v"] = state.lowBatteryShutdownVoltage;
+    payload["shutdown_threshold_v"] = DEFAULT_LOW_BATTERY_SHUTDOWN_V;
+    payload["shutdown_requested_ms"] = state.lowBatteryShutdownDetectedMs;
+    payload["shutdown_requested_at"] = getUtcIsoNow();
+
+    sendAlert("low_battery_shutdown");
+    sendLog("power", payload.as<JsonVariant>());
+    setShutdownRelayOpen(true);
+    state.lowBatteryShutdownTriggered = true;
+    LOG_ERROR("Low battery shutdown relay asserted at %.2fV", state.lowBatteryShutdownVoltage);
+  }
+
+  return true;
+}
+
+static void serviceGrainTypeVerbose(JsonVariant cfg, unsigned long nowMs) {
+  if (nowMs - gLastGrainTypeVerboseMs < 1000UL) return;
+  gLastGrainTypeVerboseMs = nowMs;
+
+  int selectedIndex = getSelectedGrainTypeIndex(cfg);
+  const char* grainType = getGrainTypeNameByIndex(cfg, selectedIndex);
+
+  SFMultiConsole.systemPrintf("[TEMP] Grain type[%d] set to: %s\n", selectedIndex, grainType);
+}
 
 void setupPins() {
   pinMode(PIN_FEEDER_TRIG, OUTPUT);
@@ -30,12 +98,15 @@ void setupPins() {
   pinMode(PIN_FEED_MOTOR, OUTPUT);
   pinMode(PIN_WATER_SOLENOID, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
+  initShutdownRelay();
   pinMode(PIN_MAINS_SENSE_ADC, INPUT);
+  pinMode(PIN_BATTERY_ADC, INPUT);
 
   setWaterSolenoidEnabled(false);
   digitalWrite(PIN_BUZZER, LOW);
   noTone(PIN_BUZZER);
   setFeedMotorEnabled(false);
+  // LCD backlight controlled via I2C; keep it enabled via driver
   LOG_INFO("Feed motor polarity activeHigh=%d", FEED_MOTOR_ACTIVE_HIGH ? 1 : 0);
   LOG_INFO("Water solenoid polarity activeHigh=%d", WATER_SOLENOID_ACTIVE_HIGH ? 1 : 0);
 
@@ -44,11 +115,22 @@ void setupPins() {
 }
 
 void setupTime() {
+  if (WiFi.status() != WL_CONNECTED) {
+    LOG_WARN("NTP sync skipped; WiFi not connected");
+    return;
+  }
+
   configTime(DEVICE_TZ_OFFSET_SECONDS, 0, "pool.ntp.org", "time.nist.gov");
   LOG_INFO("Waiting for NTP sync...");
   time_t now = time(nullptr);
   int wait = 0;
   while (now < 100000 && wait < 15) {
+    serviceMultiWirelessConsole();
+    serviceOTA();
+    if (WiFi.status() != WL_CONNECTED) {
+      LOG_WARN("NTP wait aborted; WiFi disconnected");
+      break;
+    }
     delay(1000);
     now = time(nullptr);
     wait++;
@@ -61,15 +143,10 @@ void setup() {
   Serial.begin(115200);
   delay(1200);
   LOG_INFO("Smart feeder booting");
-  LOG_INFO("Build mode simulation=%d verbose=%d", SF_SIMULATION_MODE ? 1 : 0, SF_VERBOSE_SERIAL ? 1 : 0);
-  LOG_INFO("Sim toggles feederSensor=%d waterSensor=%d feedMotor=%d refill=%d mains=%d",
-           SF_SIMULATE_FEEDER_LEVEL_SENSOR,
-           SF_SIMULATE_WATER_LEVEL_SENSOR,
-           SF_SIMULATE_FEED_MOTOR,
-           SF_SIMULATE_WATER_REFILL,
-           SF_SIMULATE_MAINS_INPUT);
+  LOG_INFO("Build mode verbose=%d", SF_VERBOSE_SERIAL ? 1 : 0);
 
   setupPins();
+  initAdcSystem();
   Wire.begin(PIN_LCD_SDA, PIN_LCD_SCL);
   LOG_INFO("I2C initialized SDA=%d SCL=%d", PIN_LCD_SDA, PIN_LCD_SCL);
 
@@ -88,6 +165,8 @@ void setup() {
   initControlPanel(&lcd);
 
   connectWiFi();
+  reconcilePowerAlertStateOnBoot();
+  setupOTA();
   setupTime();
   ensureLocalDefaults();
   reloadKeypadCalibration();
@@ -102,7 +181,12 @@ void setup() {
   state.lastConfigRefreshMs = 0;
   state.lastHeartbeatLogMs = millis();
   cachedCfgStr = loadLocalConfig();
+  state.bufferedEventCount = readBufferedEventCount();
   state.mainsPowerPresent = SF_ENABLE_MAINS_MONITOR ? readMainsPowerPresent() : true;
+  state.lowBatteryShutdownPending = false;
+  state.lowBatteryShutdownTriggered = false;
+  state.lowBatteryShutdownVoltage = -1.0f;
+  state.lowBatteryShutdownDetectedMs = 0UL;
 
   LOG_INFO("Setup complete mainsPresent=%d", state.mainsPowerPresent ? 1 : 0);
   printSerialHelp();
@@ -110,6 +194,13 @@ void setup() {
 
 void loop() {
   unsigned long nowMs = millis();
+
+  serviceMultiWirelessConsole();
+  serviceOTA();
+
+  // ** CRITICAL PRIORITY: Poll ADC pins first, before any other I/O, to capture fresh data
+  // ** with minimal interference from other operations (WiFi, serial, etc).
+  pollAdcHighPriority();
 
   // Safety guard: keep motor output in OFF state unless a dispense routine is actively running.
   setFeedMotorEnabled(false);
@@ -146,6 +237,8 @@ void loop() {
     }
   }
 
+  serviceBufferedOutbox();
+
   if (nowMs - state.lastConfigRefreshMs >= LOCAL_CONFIG_REFRESH_INTERVAL_MS || cachedCfgStr.length() == 0) {
     state.lastConfigRefreshMs = nowMs;
     cachedCfgStr = loadLocalConfig();
@@ -170,6 +263,8 @@ void loop() {
   JsonVariant cfg = cfgDoc.as<JsonVariant>();
   JsonArray schedules = cfg["schedules"].as<JsonArray>();
 
+  serviceGrainTypeVerbose(cfg, nowMs);
+
   updateControlPanel(cfg, schedules);
 
   processFeedNowCommand(cfg);
@@ -190,10 +285,6 @@ void loop() {
     StaticJsonDocument<192> hb;
     hb["event"] = "alive";
     hb["uptime_ms"] = nowMs;
-    hb["simulated"] = SF_SIMULATION_MODE ? true : false;
-    hb["sim_feeder_sensor"] = SF_SIMULATE_FEEDER_LEVEL_SENSOR ? true : false;
-    hb["sim_water_sensor"] = SF_SIMULATE_WATER_LEVEL_SENSOR ? true : false;
-    hb["sim_feed_motor"] = SF_SIMULATE_FEED_MOTOR ? true : false;
     hb["wifi_connected"] = WiFi.status() == WL_CONNECTED;
     sendLog("heartbeat", hb.as<JsonVariant>());
   }
@@ -222,6 +313,10 @@ void loop() {
   }
 
   serviceLevelErrorBuzzer(cfg);
+
+  if (serviceLowBatteryShutdown(cfg, nowMs)) {
+    return;
+  }
 
   delay(MAIN_LOOP_DELAY_MS);
 }

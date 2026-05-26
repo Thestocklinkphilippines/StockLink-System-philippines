@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
 import { getPollingIntervalMs } from '../pollingConfig'
@@ -50,12 +50,50 @@ export default function Overview(){
     }
   }, [pollingIntervalMs])
 
+  // Heartbeat pulse animation control (must be declared before any early returns)
+  const [pulseAnimate, setPulseAnimate] = useState(false)
+  const pulseTimeoutRef = useRef(null)
+
+  useEffect(() => {
+    const key = (() => {
+      try {
+        const heartbeatLogs = logs.filter(logEntry => String(logEntry.log_type || '').toLowerCase() === 'heartbeat')
+        const latestHeartbeatLocal = heartbeatLogs[0]
+        return latestHeartbeatLocal ? String(latestHeartbeatLocal.timestamp || latestHeartbeatLocal.last_updated || latestHeartbeatLocal.id || '') : 'none'
+      } catch (e) {
+        return 'none'
+      }
+    })()
+    if (!key || key === 'none') return
+    try {
+      const lastSeen = sessionStorage.getItem('overview_last_heartbeat_key')
+      if (lastSeen === key) return
+      setPulseAnimate(true)
+      sessionStorage.setItem('overview_last_heartbeat_key', key)
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+      pulseTimeoutRef.current = setTimeout(() => setPulseAnimate(false), 15000)
+    } catch (e) {
+      // ignore
+    }
+
+    return () => {
+      if (pulseTimeoutRef.current) {
+        clearTimeout(pulseTimeoutRef.current)
+        pulseTimeoutRef.current = null
+      }
+    }
+  }, [logs])
+
   if (!cfg) return <div className="overview-loading">Loading...</div>
 
   const sensorState = cfg.sensor_state || {}
   const config = cfg.config || {}
   const feederLevelPct = sensorState.feeder_level_pct ?? 100
   const waterLevelPct = sensorState.water_level_pct ?? 100
+  const maxFeedsCapacityKg = Number(config.max_feeds_capacity_kg ?? 0)
+  const currentFeedKg = Number.isFinite(maxFeedsCapacityKg)
+    ? (feederLevelPct / 100) * maxFeedsCapacityKg
+    : 0
   const feederLowThresh = config.feeder_low_threshold_pct ?? 20
   const feederHighThresh = config.feeder_high_threshold_pct ?? 80
   const waterLowThresh = config.water_low_threshold_pct ?? 20
@@ -70,12 +108,16 @@ export default function Overview(){
   const feederStatus = getStatusClass(feederLevelPct, feederLowThresh, feederHighThresh)
   const waterStatus = getStatusClass(waterLevelPct, waterLowThresh, waterHighThresh)
 
+  const batteryVoltage = Number(sensorState.battery_voltage_v ?? NaN)
+  const hasBattery = Number.isFinite(batteryVoltage)
+
   const totalDispensedKg = Number(config.total_feeds_today_kg ?? 0)
   const displayTotalDispensedKg = Number.isFinite(totalDispensedKg) ? totalDispensedKg : 0
   const pendingAlerts = alerts.filter(alertItem => !alertItem.resolved)
   const heartbeatLogs = logs.filter(logEntry => String(logEntry.log_type || '').toLowerCase() === 'heartbeat')
   const latestHeartbeat = heartbeatLogs[0]
   const heartbeatPulseKey = latestHeartbeat ? String(latestHeartbeat.timestamp || latestHeartbeat.last_updated || latestHeartbeat.id || '') : 'none'
+  
   const latestAlert = alerts[0]
 
   return (
@@ -113,6 +155,16 @@ export default function Overview(){
                   <div className="sensor-level-fill" style={{width: `${feederLevelPct}%`}}></div>
                 </div>
                 <p className="sensor-level-pct">{feederLevelPct.toFixed(1)}%</p>
+              </div>
+              <div className="overview-sensor-stats">
+                <div className="overview-sensor-stat">
+                  <span>Current Feed Level</span>
+                  <strong>{feederLevelPct.toFixed(1)}%</strong>
+                </div>
+                <div className="overview-sensor-stat">
+                  <span>Current Feed Kg</span>
+                  <strong>{currentFeedKg.toFixed(3)}kg</strong>
+                </div>
               </div>
               <div className="sensor-thresholds">
                 <span className="sensor-threshold-low">Low: {feederLowThresh}%</span>
@@ -206,7 +258,7 @@ export default function Overview(){
               <h4>Logs & Heartbeats</h4>
               <Link to="/dashboard/logs" className="overview-side-link">Open</Link>
             </div>
-            <div className="overview-side-kpi-row">
+            <div className="overview-side-kpi-row overview-side-kpi-row-3">
               <div>
                 <span className="overview-side-kpi-label">Logs</span>
                 <strong className="overview-side-kpi">{logs.length}</strong>
@@ -214,14 +266,24 @@ export default function Overview(){
               <div>
                 <span className="overview-side-kpi-label">Heartbeat</span>
                 {latestHeartbeat ? (
-                  <strong key={heartbeatPulseKey} className="overview-side-kpi overview-heartbeat-pulse">Beat</strong>
+                  <strong
+                    key={heartbeatPulseKey}
+                    className={`overview-side-kpi overview-heartbeat-pulse ${pulseAnimate ? 'pulse-animate' : ''}`}>
+                    Beat
+                  </strong>
                 ) : (
                   <strong className="overview-side-kpi overview-heartbeat-idle">No Signal</strong>
                 )}
               </div>
+              <div>
+                <span className="overview-side-kpi-label">Battery</span>
+                <strong className="overview-side-kpi">{hasBattery ? `${batteryVoltage.toFixed(2)}V` : 'N/A'}</strong>
+              </div>
             </div>
             <p className="overview-side-note">
-              {latestHeartbeat ? `Latest heartbeat: ${formatDateTime(latestHeartbeat.timestamp, 'Unknown time')}` : 'No heartbeat logs yet.'}
+              {hasBattery
+                ? `Latest battery: ${batteryVoltage.toFixed(2)}V`
+                : (latestHeartbeat ? `Latest heartbeat: ${formatDateTime(latestHeartbeat.timestamp, 'Unknown time')}` : 'No heartbeat logs yet.')}
             </p>
           </article>
         </aside>
