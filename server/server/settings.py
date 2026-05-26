@@ -3,11 +3,23 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'dev-placeholder'
 
-DEBUG = True
+def _env_bool(name, default=False):
+    return os.getenv(name, str(default)).strip().lower() in {'1', 'true', 'yes', 'on'}
 
-ALLOWED_HOSTS = ['*']
+
+def _env_list(name):
+    value = os.getenv(name, '')
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-placeholder')
+
+DEBUG = _env_bool('DJANGO_DEBUG', True)
+
+if not DEBUG and SECRET_KEY == 'dev-placeholder':
+    raise RuntimeError('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false.')
+
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS') or (['localhost', '127.0.0.1'] if DEBUG else [])
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -24,6 +36,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'iot.middleware.SystemTimezoneMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -31,8 +44,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-
-    "corsheaders.middleware.CorsMiddleware",
 ]
 
 ROOT_URLCONF = 'server.urls'
@@ -60,7 +71,9 @@ DATABASES = {
     }
 }
 
-CORS_ALLOW_ALL_ORIGINS = True  # dev only
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOWED_ORIGINS = _env_list('DJANGO_CORS_ALLOWED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 AUTH_PASSWORD_VALIDATORS = []
 
