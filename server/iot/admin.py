@@ -170,6 +170,12 @@ class ScheduleAdmin(admin.ModelAdmin):
 @admin.register(SystemSettings)
 class SystemSettingsAdmin(admin.ModelAdmin):
     class SystemSettingsForm(forms.ModelForm):
+        grain_types_text = forms.CharField(
+            label='Grain types',
+            required=False,
+            widget=forms.Textarea(attrs={'rows': 8}),
+            help_text='JSON array of grain type objects with grain_type and feed_ms_per_kg.',
+        )
         important_log_keywords_text = forms.CharField(
             label='Important log keywords',
             required=False,
@@ -183,9 +189,49 @@ class SystemSettingsAdmin(admin.ModelAdmin):
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            grain_types = getattr(self.instance, 'grain_types', None) or []
+            if isinstance(grain_types, list):
+                self.fields['grain_types_text'].initial = json.dumps(grain_types, indent=2)
             keywords = getattr(self.instance, 'important_log_keywords', None) or []
             if isinstance(keywords, list):
                 self.fields['important_log_keywords_text'].initial = ', '.join(str(item) for item in keywords)
+
+        def clean_grain_types_text(self):
+            raw_value = (self.cleaned_data.get('grain_types_text') or '').strip()
+            if not raw_value:
+                return []
+
+            try:
+                parsed = json.loads(raw_value)
+            except Exception as exc:
+                raise forms.ValidationError('Invalid JSON array.') from exc
+
+            if not isinstance(parsed, list):
+                raise forms.ValidationError('JSON input must be an array of grain type objects.')
+
+            normalized = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    raise forms.ValidationError('Each grain type must be an object.')
+
+                grain_type = str(item.get('grain_type') or '').strip()
+                if not grain_type:
+                    raise forms.ValidationError('Each grain type must include grain_type.')
+
+                try:
+                    feed_ms_per_kg = float(item.get('feed_ms_per_kg'))
+                except (TypeError, ValueError) as exc:
+                    raise forms.ValidationError(f'Invalid feed_ms_per_kg for {grain_type}.') from exc
+
+                if feed_ms_per_kg <= 0:
+                    raise forms.ValidationError(f'feed_ms_per_kg must be greater than 0 for {grain_type}.')
+
+                normalized.append({
+                    'grain_type': grain_type,
+                    'feed_ms_per_kg': feed_ms_per_kg,
+                })
+
+            return normalized
 
         def clean_important_log_keywords_text(self):
             raw_value = (self.cleaned_data.get('important_log_keywords_text') or '').strip()
@@ -208,6 +254,7 @@ class SystemSettingsAdmin(admin.ModelAdmin):
 
         def save(self, commit=True):
             instance = super().save(commit=False)
+            instance.grain_types = self.cleaned_data.get('grain_types_text') or []
             instance.important_log_keywords = self.cleaned_data.get('important_log_keywords_text') or []
             if commit:
                 instance.save()
@@ -238,6 +285,7 @@ class SystemSettingsAdmin(admin.ModelAdmin):
             'fields': (
                 'max_feeds_capacity_kg',
                 'grain_type',
+                'grain_types_text',
                 'feeder_low_threshold_pct',
                 'feeder_high_threshold_pct',
                 'water_low_threshold_pct',
