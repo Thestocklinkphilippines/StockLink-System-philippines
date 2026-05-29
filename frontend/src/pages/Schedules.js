@@ -84,7 +84,7 @@ export default function Schedules({ currentUser = null }){
       const res = await api.postJSON(`/api/device/${deviceId}/feed-now/`, { amount_kg: amount })
       if (res.ok) {
         setFeedNowCommands(prev => [res.body, ...prev].slice(0, 20))
-        setFeedNowMessage(`Feed-now command queued: ${amount.toFixed(3)} kg`)
+        setFeedNowMessage(`Feed-now command queued: #${res.body.id} ${amount.toFixed(3)} kg`)
       } else {
         const detail = res.body && (res.body.detail || res.body.amount_kg || JSON.stringify(res.body))
         setFeedNowError(detail || 'Failed to queue feed-now command.')
@@ -351,7 +351,7 @@ export default function Schedules({ currentUser = null }){
               <ul>
                 {feedNowCommands.slice(0, 5).map(cmd => (
                   <li key={cmd.id}>
-                    <span>{Number(cmd.amount_kg).toFixed(3)}kg</span>
+                    <span>#{cmd.id} · {Number(cmd.amount_kg).toFixed(3)}kg</span>
                     <span className={`feed-now-status feed-now-status-${cmd.status}`}>{formatFeedNowStatus(cmd.status)}</span>
                   </li>
                 ))}
