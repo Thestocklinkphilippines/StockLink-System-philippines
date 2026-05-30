@@ -50,6 +50,40 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(Log.objects.filter(device=self.device, log_type='feeding').count(), 1)
         self.assertEqual(DeviceEvent.objects.filter(device=self.device).count(), 1)
 
+    def test_manual_feed_logs_stack_as_history_rows(self):
+        first_payload = {
+            'log_type': 'feed_now',
+            'timestamp': '2026-05-16T10:00:00Z',
+            'event_id': 'evt-feed-now-1',
+            'source': 'esp32',
+            'payload': {
+                'status': 'executed',
+                'command_id': 70,
+                'amount_kg': 0.214,
+                'remaining_kg': 7.0,
+            },
+        }
+        second_payload = {
+            'log_type': 'feed_now',
+            'timestamp': '2026-05-16T10:05:00Z',
+            'event_id': 'evt-feed-now-2',
+            'source': 'esp32',
+            'payload': {
+                'status': 'executed',
+                'command_id': 71,
+                'amount_kg': 0.214,
+                'remaining_kg': 6.786,
+            },
+        }
+
+        first = self._post_json('/api/device/esp32-001/logs/', first_payload)
+        second = self._post_json('/api/device/esp32-001/logs/', second_payload)
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(Log.objects.filter(device=self.device, log_type='feed_now').count(), 2)
+        self.assertEqual(DeviceEvent.objects.filter(device=self.device, event_type='feed_now').count(), 2)
+
     def test_logs_endpoint_returns_all_feed_history_rows(self):
         base_timestamp = timezone.now()
         Log.objects.bulk_create(
@@ -173,6 +207,113 @@ class OfflineReplayIngestTests(TestCase):
         command.refresh_from_db()
         self.assertEqual(command.status, FeedNowCommand.STATUS_EXECUTED)
         self.assertEqual(DeviceEvent.objects.filter(device=self.device, event_type='feed_now_ack').count(), 1)
+
+    def test_feeding_log_with_feed_now_trigger_executes_command(self):
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.15)
+        payload = {
+            'log_type': 'feeding',
+            'timestamp': '2026-05-29T12:34:20Z',
+            'event_id': 'feed-now-completion-81',
+            'source': 'esp32',
+            'payload': {
+                'amount_kg': 0.15,
+                'remaining_kg': 0.0,
+                'feeder_level_pct': 0,
+                'trigger': 'feed_now',
+                'command_id': command.id,
+                'phase': 'completed',
+            },
+        }
+
+        user = User.objects.create_user(username='feed-now-reader', password='pass12345')
+        client = Client()
+        client.force_login(user)
+
+        response = self._post_json('/api/device/esp32-001/logs/', payload)
+
+        self.assertEqual(response.status_code, 201)
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_EXECUTED)
+        self.assertIsNotNone(command.executed_at)
+
+        feed_now_list = client.get(f'/api/device/{self.device.device_id}/feed-now/')
+        self.assertEqual(feed_now_list.status_code, 200)
+        self.assertEqual(feed_now_list.json()[0]['id'], command.id)
+        self.assertEqual(feed_now_list.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
+
+    def test_pending_feed_now_command_is_reconciled_from_existing_logs(self):
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.15)
+        Log.objects.create(
+            device=self.device,
+            log_type='feeding',
+            log_category='feeding',
+            timestamp=timezone.now(),
+            payload={
+                'amount_kg': 0.15,
+                'remaining_kg': 0.0,
+                'feeder_level_pct': 0,
+                'trigger': 'feed_now',
+                'command_id': command.id,
+                'phase': 'completed',
+            },
+        )
+
+        user = User.objects.create_user(username='feed-now-backfill', password='pass12345')
+        user.is_staff = True
+        user.save(update_fields=['is_staff'])
+        UserApproval.objects.create(user=user, is_approved=True)
+
+        client = Client()
+        client.force_login(user)
+
+        feed_now_list = client.get(f'/api/device/{self.device.device_id}/feed-now/')
+        config_res = client.get(f'/api/device/{self.device.device_id}/config/')
+
+        self.assertEqual(feed_now_list.status_code, 200)
+        self.assertEqual(feed_now_list.json()[0]['id'], command.id)
+        self.assertEqual(feed_now_list.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
+        self.assertEqual(config_res.status_code, 200)
+        self.assertIsNone(config_res.json()['config']['feed_now_command'])
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_EXECUTED)
+
+    def test_feed_now_command_status_is_shared_between_config_and_list(self):
+        user = User.objects.create_user(username='staff-feed-now', password='pass12345')
+        user.is_staff = True
+        user.save(update_fields=['is_staff'])
+        UserApproval.objects.create(user=user, is_approved=True)
+
+        user_client = Client()
+        user_client.force_login(user)
+
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
+
+        config_before = user_client.get(f'/api/device/{self.device.device_id}/config/')
+        list_before = user_client.get(f'/api/device/{self.device.device_id}/feed-now/')
+
+        self.assertEqual(config_before.status_code, 200)
+        self.assertEqual(list_before.status_code, 200)
+        self.assertIsNotNone(config_before.json()['config']['feed_now_command'])
+        self.assertEqual(config_before.json()['config']['feed_now_command']['id'], command.id)
+        self.assertEqual(config_before.json()['config']['feed_now_command']['status'], FeedNowCommand.STATUS_PENDING)
+        self.assertEqual(list_before.json()[0]['id'], command.id)
+        self.assertEqual(list_before.json()[0]['status'], FeedNowCommand.STATUS_PENDING)
+
+        ack_response = self._post_json(
+            f'/api/device/esp32-001/feed-now/{command.id}/ack/',
+            {'status': 'executed', 'reason': 'ok', 'event_id': 'ack-shared-1'},
+        )
+
+        self.assertEqual(ack_response.status_code, 200)
+
+        config_after = user_client.get(f'/api/device/{self.device.device_id}/config/')
+        list_after = user_client.get(f'/api/device/{self.device.device_id}/feed-now/')
+
+        self.assertEqual(config_after.status_code, 200)
+        self.assertIsNone(config_after.json()['config']['feed_now_command'])
+        self.assertEqual(list_after.status_code, 200)
+        self.assertEqual(list_after.json()[0]['id'], command.id)
+        self.assertEqual(list_after.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
 
     def test_connection_timeout_creates_alert_and_heartbeat_restores(self):
         stale_seen = timezone.now() - timedelta(seconds=61)

@@ -663,9 +663,99 @@ def _ingest_log_projection(device, log_type, payload, log_timestamp, *, event_id
         existing_log = Log.objects.filter(device=device, log_type=log_type).order_by('-id').first()
         return event, existing_log, True, False
 
-    should_stack = log_type in {'feeding', DEVICE_CONNECTION_LOSS_LOG_TYPE, DEVICE_CONNECTION_RESTORED_LOG_TYPE}
+    should_stack = log_type in {'feeding', 'feed_now', DEVICE_CONNECTION_LOSS_LOG_TYPE, DEVICE_CONNECTION_RESTORED_LOG_TYPE}
     existing_log = Log.objects.filter(device=device, log_type=log_type).order_by('-id').first()
 
+    # Attempt to correlate feeding <-> feed_now when firmware supplies command_id/trigger
+    try:
+        cmd_id = None
+        trigger = None
+        if isinstance(payload, dict):
+            cmd_id = payload.get('command_id') or (payload.get('payload') or {}).get('command_id')
+            trigger = payload.get('trigger') or (payload.get('payload') or {}).get('event')
+        if cmd_id is not None:
+            try:
+                cmd_id_int = int(cmd_id)
+            except (TypeError, ValueError):
+                cmd_id_int = None
+        else:
+            cmd_id_int = None
+    except Exception:
+        cmd_id_int = None
+        trigger = None
+
+    # If this is a physical 'feeding' log produced by an actuator and it references a feed-now command,
+    # merge it into the canonical 'feed_now' log (if present) so the UI sees one logical event.
+    if str(log_type).strip().lower() == 'feeding' and cmd_id_int is not None:
+        matched = Log.objects.filter(device=device, log_type='feed_now', payload__command_id=cmd_id_int).order_by('-id').first()
+        if matched:
+            # merge feeding payload into the feed_now record
+            merged = dict(matched.payload or {})
+            merged.update(payload or {})
+            matched.payload = merged
+            # prefer the physical feeding timestamp (more accurate)
+            if log_timestamp is not None:
+                matched.timestamp = log_timestamp
+            matched.refresh_count += 1
+            matched.save(update_fields=['timestamp', 'payload', 'refresh_count', 'last_updated'])
+            return event, matched, False, True
+
+    # When firmware reports the physical completion of a feed_now action, reconcile the
+    # command row even if the explicit feed_now ack was not sent.
+    if cmd_id_int is not None and trigger == 'feed_now':
+        status_hint = str(
+            (payload or {}).get('status')
+            or (payload or {}).get('phase')
+            or ((payload or {}).get('payload') or {}).get('status')
+            or ((payload or {}).get('payload') or {}).get('phase')
+            or ''
+        ).strip().lower()
+        resolved_status = FeedNowCommand.STATUS_FAILED if status_hint in {'failed', 'fail', 'error', 'timeout', 'cancelled', 'canceled'} else FeedNowCommand.STATUS_EXECUTED
+        try:
+            command = FeedNowCommand.objects.get(device=device, id=cmd_id_int)
+        except FeedNowCommand.DoesNotExist:
+            command = None
+        if command is not None and command.status == FeedNowCommand.STATUS_PENDING:
+            command.status = resolved_status
+            command.executed_at = _normalize_dt(log_timestamp) or timezone.now()
+            if resolved_status == FeedNowCommand.STATUS_FAILED:
+                command.failure_reason = (status_hint or 'feeding log reported failure')[:255]
+            else:
+                command.failure_reason = ''
+            command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
+
+    # If this is a 'feed_now' acknowledgement and there's an existing 'feeding' physical record,
+    # merge the data into a canonical 'feed_now' record (create or update) so the UI shows a single row.
+    if str(log_type).strip().lower() == 'feed_now' and cmd_id_int is not None:
+        # prefer creating/updating the feed_now row as canonical
+        feeding_match = Log.objects.filter(device=device, log_type='feeding', payload__command_id=cmd_id_int).order_by('-id').first()
+        target_log = None
+        # only reuse an existing feed_now row if feed_now is not considered stackable
+        if existing_log and (existing_log.log_type == 'feed_now') and (not should_stack):
+            target_log = existing_log
+
+        if feeding_match and not target_log:
+            # convert the existing feeding row into a feed_now canonical row
+            feeding_match.log_type = 'feed_now'
+            feeding_match.log_category = _derive_log_category('feed_now')
+            merged = dict(feeding_match.payload or {})
+            merged.update(payload or {})
+            feeding_match.payload = merged
+            feeding_match.timestamp = log_timestamp or feeding_match.timestamp
+            feeding_match.refresh_count += 1
+            feeding_match.save(update_fields=['log_type', 'log_category', 'timestamp', 'payload', 'refresh_count', 'last_updated'])
+            return event, feeding_match, False, True
+
+        if target_log:
+            merged = dict(target_log.payload or {})
+            merged.update(payload or {})
+            target_log.payload = merged
+            target_log.timestamp = log_timestamp or target_log.timestamp
+            target_log.refresh_count += 1
+            target_log.save(update_fields=['timestamp', 'payload', 'refresh_count', 'last_updated'])
+            return event, target_log, False, True
+
+    # Default path: non-stackable existing update or create new log
     if existing_log and not should_stack:
         existing_log.timestamp = log_timestamp
         existing_log.payload = payload
@@ -810,20 +900,81 @@ def _get_effective_config_last_updated(device, cfg):
     return effective
 
 
+def _serialize_feed_now_command(command):
+    return {
+        'id': command.id,
+        'device': command.device_id,
+        'amount_kg': command.amount_kg,
+        'status': command.status,
+        'created_at': command.created_at.isoformat(),
+        'updated_at': command.updated_at.isoformat(),
+        'requested_by': command.requested_by,
+        'executed_at': command.executed_at.isoformat() if command.executed_at else None,
+        'failure_reason': command.failure_reason,
+    }
+
+
+def _reconcile_feed_now_command_from_logs(command):
+    if command.status != FeedNowCommand.STATUS_PENDING:
+        return command, False
+
+    matching_logs = (
+        Log.objects.filter(
+            device=command.device,
+            log_type__in=['feeding', 'feed_now'],
+        )
+        .order_by('-timestamp', '-id')
+    )
+
+    for log in matching_logs:
+        payload = log.payload if isinstance(log.payload, dict) else {}
+        nested_payload = payload.get('payload') if isinstance(payload.get('payload'), dict) else {}
+
+        candidate_command_id = payload.get('command_id') or nested_payload.get('command_id')
+        try:
+            candidate_command_id = int(candidate_command_id)
+        except (TypeError, ValueError):
+            continue
+
+        if candidate_command_id != command.id:
+            continue
+
+        trigger = str(payload.get('trigger') or nested_payload.get('trigger') or nested_payload.get('event') or '').strip().lower()
+        if log.log_type == 'feeding' and trigger != 'feed_now':
+            continue
+
+        status_hint = str(
+            payload.get('status')
+            or payload.get('phase')
+            or nested_payload.get('status')
+            or nested_payload.get('phase')
+            or ''
+        ).strip().lower()
+        resolved_status = FeedNowCommand.STATUS_FAILED if status_hint in {'failed', 'fail', 'error', 'timeout', 'cancelled', 'canceled'} else FeedNowCommand.STATUS_EXECUTED
+
+        command.status = resolved_status
+        command.executed_at = _normalize_dt(log.timestamp) or timezone.now()
+        if resolved_status == FeedNowCommand.STATUS_FAILED:
+            command.failure_reason = (status_hint or 'feeding log reported failure')[:255]
+        else:
+            command.failure_reason = ''
+        command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
+        return command, True
+
+    return command, False
+
+
 def _serialize_pending_feed_now_command(device):
-    cmd = (
+    pending_commands = (
         FeedNowCommand.objects
         .filter(device=device, status=FeedNowCommand.STATUS_PENDING)
         .order_by('created_at', 'id')
-        .first()
     )
-    if not cmd:
-        return None
-    return {
-        'id': cmd.id,
-        'amount_kg': cmd.amount_kg,
-        'created_at': cmd.created_at.isoformat(),
-    }
+    for cmd in pending_commands:
+        cmd, _ = _reconcile_feed_now_command_from_logs(cmd)
+        if cmd.status == FeedNowCommand.STATUS_PENDING:
+            return _serialize_feed_now_command(cmd)
+    return None
 
 
 def _with_runtime_time_fields(payload):
@@ -2504,7 +2655,11 @@ class FeedNowCommandView(APIView):
     def get(self, request, device_id):
         device = get_object_or_404(Device, device_id=device_id)
         commands = FeedNowCommand.objects.filter(device=device).order_by('-created_at', '-id')[:20]
-        return Response(FeedNowCommandSerializer(commands, many=True).data)
+        serialized = []
+        for command in commands:
+            command, _ = _reconcile_feed_now_command_from_logs(command)
+            serialized.append(_serialize_feed_now_command(command))
+        return Response(serialized)
 
     def post(self, request, device_id):
         if not request.user.is_staff:
@@ -2530,11 +2685,16 @@ class FeedNowCommandView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        existing_pending = FeedNowCommand.objects.filter(
+        pending_commands = FeedNowCommand.objects.filter(
             device=device,
             status=FeedNowCommand.STATUS_PENDING,
-        ).count()
-        if existing_pending >= 5:
+        ).order_by('created_at', 'id')
+        pending_count = 0
+        for pending_command in pending_commands:
+            pending_command, _ = _reconcile_feed_now_command_from_logs(pending_command)
+            if pending_command.status == FeedNowCommand.STATUS_PENDING:
+                pending_count += 1
+        if pending_count >= 5:
             return Response(
                 {'detail': 'Too many pending feed-now commands. Wait for device acknowledgement.'},
                 status=status.HTTP_409_CONFLICT,

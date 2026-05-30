@@ -71,11 +71,58 @@ function formatDetails(log) {
   return bits.join(' | ')
 }
 
-function formatFeedHeadline(log) {
+function parseDateMs(value) {
+  const date = value ? new Date(value) : null
+  const time = date && !Number.isNaN(date.getTime()) ? date.getTime() : null
+  return time
+}
+
+function isManualFeedCommand(command) {
+  return Boolean(command && (command.status === 'executed' || command.status === 'failed'))
+}
+
+function matchesManualFeedCommand(log, feedNowCommands = []) {
+  const p = log?.payload || {}
+  const amountKg = p.amount_kg != null ? Number(p.amount_kg) : null
+  const logTime = parseDateMs(log?.timestamp)
+  if (!Number.isFinite(amountKg) || logTime == null) return false
+
+  const matches = feedNowCommands.filter((command) => {
+    if (!isManualFeedCommand(command)) return false
+    const commandAmount = Number(command?.amount_kg)
+    if (!Number.isFinite(commandAmount) || Math.abs(commandAmount - amountKg) >= 0.001) return false
+
+    const commandTime = parseDateMs(command?.executed_at || command?.updated_at || command?.created_at)
+    if (commandTime == null) return false
+
+    return Math.abs(commandTime - logTime) <= 15 * 60 * 1000
+  })
+
+  if (matches.length === 0) return false
+  if (p.command_id != null) return matches.some((command) => String(command.id) === String(p.command_id))
+  return true
+}
+
+function isManualTrigger(log) {
+  const p = log?.payload || {}
+  return String(p.trigger || '').trim().toLowerCase() === 'manual'
+}
+
+function isManualFeedLog(log, feedNowCommands = []) {
+  const type = String(log?.log_type || '').toLowerCase()
+  const p = log?.payload || {}
+  return type === 'feed_now' || p.event === 'feed_now' || p.command_id != null || p.status === 'executed' || p.status === 'failed' || isManualTrigger(log) || matchesManualFeedCommand(log, feedNowCommands)
+}
+
+function formatFeedHeadline(log, feedNowCommands = []) {
   const type = String(log?.log_type || '').toLowerCase()
   const p = log?.payload || {}
 
-  if (type === 'feed_now' || p.event === 'feed_now') {
+  if (isManualFeedLog(log, feedNowCommands)) {
+    if (isManualTrigger(log)) {
+      return 'Manual feed event'
+    }
+
     if (p.status) {
       return p.status === 'executed' ? 'Manual feed executed' : `Manual feed ${p.status}`
     }
@@ -110,6 +157,7 @@ export default function Logs() {
   const pollingIntervalMs = getPollingIntervalMs()
   const [logs, setLogs] = useState([])
   const [schedules, setSchedules] = useState([])
+  const [feedNowCommands, setFeedNowCommands] = useState([])
   const [deviceId, setDeviceId] = useState('esp32-001')
   const [feedPage, setFeedPage] = useState(1)
 
@@ -121,13 +169,15 @@ export default function Logs() {
       if (!isMounted) return
       setDeviceId(active)
 
-      const [logsRes, schedulesRes] = await Promise.all([
+      const [logsRes, schedulesRes, feedNowRes] = await Promise.all([
         api.getJSON(`/api/device/${active}/logs/`),
         api.getJSON(`/api/device/${active}/schedules/`),
+        api.getJSON(`/api/device/${active}/feed-now/`),
       ])
 
       if (isMounted && logsRes.ok) setLogs(logsRes.body)
       if (isMounted && schedulesRes.ok) setSchedules(schedulesRes.body || [])
+      if (isMounted && feedNowRes.ok) setFeedNowCommands(feedNowRes.body || [])
     }
 
     refresh()
@@ -166,7 +216,7 @@ export default function Logs() {
     }
   }
 
-  const currentLogs = logs.filter(l => !nonStackingTypes.includes(String(l.log_type || '').toLowerCase()) && String(l.log_type || '').toLowerCase() !== 'feeding' && String(l.log_type || '').toLowerCase() !== 'heartbeat')
+  const currentLogs = logs.filter(l => !nonStackingTypes.includes(String(l.log_type || '').toLowerCase()) && String(l.log_type || '').toLowerCase() !== 'feeding' && String(l.log_type || '').toLowerCase() !== 'feed_now' && String(l.log_type || '').toLowerCase() !== 'heartbeat')
 
   const normalizeTimeParts = (value) => {
     if (!value) return []
@@ -182,6 +232,7 @@ export default function Logs() {
 
   const resolveScheduledFeedName = (log) => {
     const p = log?.payload || {}
+    if (isManualFeedLog(log, feedNowCommands)) return 'Manual feed'
     if (p.schedule_name) return String(p.schedule_name)
 
     if (p.schedule_id != null) {
@@ -226,9 +277,7 @@ export default function Logs() {
   }
 
   const resolveExportRowName = (log) => {
-    const p = log?.payload || {}
-    const type = String(log?.log_type || '').toLowerCase()
-    if (type === 'feed_now' || p.event === 'feed_now') return 'Manual feed'
+    if (isManualFeedLog(log, feedNowCommands)) return 'Manual feed'
     return resolveScheduledFeedName(log)
   }
 
@@ -391,7 +440,7 @@ export default function Logs() {
                   <li key={log.id} className="logs-feed-item">
                     <div className="logs-feed-item-head">
                       <div>
-                        <span className="logs-feed-item-type">{formatFeedHeadline(log)}</span>
+                        <span className="logs-feed-item-type">{formatFeedHeadline(log, feedNowCommands)}</span>
                         <span className="logs-feed-item-summary">{formatFeedSummary(log)}</span>
                       </div>
                       <span className="logs-feed-item-time">{formatTimestamp(log.timestamp)}</span>
