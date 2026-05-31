@@ -315,6 +315,23 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(list_after.json()[0]['id'], command.id)
         self.assertEqual(list_after.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
 
+    def test_non_staff_user_can_queue_feed_now_command(self):
+        user = User.objects.create_user(username='regular-feed-now', password='pass12345')
+        UserApproval.objects.create(user=user, is_approved=True)
+
+        client = Client()
+        client.force_login(user)
+
+        response = client.post(
+            f'/api/device/{self.device.device_id}/feed-now/',
+            data=json.dumps({'amount_kg': 0.25}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(FeedNowCommand.objects.filter(device=self.device).count(), 1)
+        self.assertEqual(FeedNowCommand.objects.get(device=self.device).requested_by, user.username)
+
     def test_connection_timeout_creates_alert_and_heartbeat_restores(self):
         stale_seen = timezone.now() - timedelta(seconds=61)
         self.device.last_seen = stale_seen

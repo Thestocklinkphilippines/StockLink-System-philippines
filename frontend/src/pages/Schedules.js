@@ -20,7 +20,6 @@ export default function Schedules({ currentUser = null }){
   const [feedNowLoading, setFeedNowLoading] = useState(false)
   const [feedNowMessage, setFeedNowMessage] = useState('')
   const [feedNowError, setFeedNowError] = useState('')
-  const isStaff = Boolean(currentUser && currentUser.is_staff)
 
   useEffect(()=>{
     let isMounted = true
@@ -64,12 +63,6 @@ export default function Schedules({ currentUser = null }){
   },[pollingIntervalMs])
 
   async function submitFeedNowCommand(){
-    if (!isStaff) {
-      setFeedNowError('Only ADMIN staff users can queue feed-now commands.')
-      setFeedNowMessage('')
-      return
-    }
-
     const amount = Number(feedNowAmountKg)
     if (!Number.isFinite(amount) || amount <= 0) {
       setFeedNowError('Feed amount must be greater than 0.')
@@ -323,7 +316,7 @@ export default function Schedules({ currentUser = null }){
         <div className="schedules-feed-now">
           <div className="schedules-feed-now-copy">
             <h4>Need to feed now?</h4>
-            <p>{isStaff ? 'Queue an immediate feed command for this device.' : 'Feed-now queueing is restricted to ADMIN staff users.'}</p>
+                <p>Queue an immediate feed-now command for this device.</p>
             <div className="feed-now-controls">
               <label htmlFor="feed-now-amount" className="feed-now-label">Amount (kg)</label>
               <input
@@ -334,9 +327,9 @@ export default function Schedules({ currentUser = null }){
                 step="0.001"
                 value={feedNowAmountKg}
                 onChange={e => setFeedNowAmountKg(e.target.value)}
-                disabled={feedNowLoading || !isStaff}
+                    disabled={feedNowLoading}
               />
-              <button className="feed-now-btn" onClick={submitFeedNowCommand} disabled={feedNowLoading || !feedNowAmountKg || !isStaff}>
+                  <button className="feed-now-btn" onClick={submitFeedNowCommand} disabled={feedNowLoading || !feedNowAmountKg}>
                 {feedNowLoading ? 'Queueing...' : 'Feed Now'}
               </button>
             </div>

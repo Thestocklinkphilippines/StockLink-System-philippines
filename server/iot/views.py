@@ -2662,9 +2662,6 @@ class FeedNowCommandView(APIView):
         return Response(serialized)
 
     def post(self, request, device_id):
-        if not request.user.is_staff:
-            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
-
         device = get_object_or_404(Device, device_id=device_id)
         serializer = FeedNowCommandSerializer(data=request.data)
         if not serializer.is_valid():
