@@ -35,7 +35,7 @@ export default function AdminUsers({ currentUser = null }) {
     setError('')
     const res = await api.getJSON('/api/admin/users/')
     if (res.ok && Array.isArray(res.body)) {
-      setUsers(res.body)
+      setUsers(res.body.filter(user => !user.is_superuser))
       return true
     }
 

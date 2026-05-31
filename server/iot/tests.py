@@ -907,6 +907,24 @@ class AdminRoleManagementTests(TestCase):
         self.assertEqual(promote.status_code, 403)
         self.assertEqual(demote.status_code, 403)
 
+    def test_admin_user_list_hides_superusers(self):
+        superuser = User.objects.create_user(username='rootadmin', email='rootadmin@example.com', password='StrongPass1!')
+        superuser.is_superuser = True
+        superuser.is_staff = True
+        superuser.save(update_fields=['is_superuser', 'is_staff'])
+        UserApproval.objects.create(user=superuser, is_approved=True)
+
+        client = Client()
+        client.force_login(self.admin_user)
+
+        response = client.get('/api/admin/users/')
+
+        self.assertEqual(response.status_code, 200)
+        usernames = [user['username'] for user in response.json()]
+        self.assertNotIn('rootadmin', usernames)
+        self.assertIn(self.admin_user.username, usernames)
+        self.assertIn(self.normal_user.username, usernames)
+
     def test_admin_can_approve_delete_and_reject_users(self):
         pending_user = User.objects.create_user(username='pendinguser', email='pending@example.com', password='StrongPass1!', is_active=False)
         UserApproval.objects.create(user=pending_user)

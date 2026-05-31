@@ -1929,7 +1929,7 @@ class AdminUserListView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        users = User.objects.order_by('username', 'id')
+        users = User.objects.filter(is_superuser=False).order_by('username', 'id')
         return Response([_serialize_admin_user(user) for user in users])
 
 
