@@ -365,6 +365,114 @@ def _get_device_sensor_state(device):
         }
 
 
+def _derive_feed_current_kg(device, feeder_level):
+    try:
+        cfg = DeviceConfig.objects.filter(device=device).first()
+        config = cfg.config if cfg is not None and isinstance(cfg.config, dict) else {}
+        max_capacity = config.get('max_feeds_capacity_kg')
+        if max_capacity is None:
+            max_capacity = SystemSettings.get_effective().max_feeds_capacity_kg
+        max_capacity = float(max_capacity)
+        feeder_pct = float(feeder_level)
+    except (TypeError, ValueError):
+        return None
+    except Exception:
+        return None
+
+    if not math.isfinite(max_capacity) or max_capacity <= 0:
+        return None
+    if not math.isfinite(feeder_pct):
+        return None
+
+    feeder_pct = max(0.0, min(100.0, feeder_pct))
+    return max_capacity * feeder_pct / 100.0
+
+
+def _parse_schedule_minutes(value):
+    text = str(value or '').strip()
+    if len(text) < 5:
+        return None
+    text = text[:5]
+    try:
+        hour_text, minute_text = text.split(':', 1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+    except (TypeError, ValueError):
+        return None
+    if hour < 0 or hour >= 24 or minute < 0 or minute >= 60:
+        return None
+    return hour * 60 + minute
+
+
+def _derive_required_next_feed_kg(device, now_ts=None):
+    local_now = timezone.localtime(_normalize_dt(now_ts) or timezone.now())
+    now_minute = local_now.hour * 60 + local_now.minute
+    weekday_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    schedules = Schedule.objects.filter(device=device, enabled=True).order_by('id')
+
+    best_offset = 8 * 24 * 60
+    best_amount = None
+    for schedule in schedules:
+        schedule_minute = _parse_schedule_minutes(schedule.time)
+        if schedule_minute is None:
+            continue
+
+        try:
+            amount_kg = float(schedule.feeding_amount_kg)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(amount_kg) or amount_kg <= 0:
+            continue
+
+        days = schedule.days if isinstance(schedule.days, list) else []
+        normalized_days = {str(day) for day in days if str(day).strip()}
+
+        if not normalized_days:
+            offset = schedule_minute - now_minute
+            if offset < 0:
+                offset += 24 * 60
+            if offset < best_offset:
+                best_offset = offset
+                best_amount = amount_kg
+            continue
+
+        for day_offset in range(7):
+            weekday = weekday_names[(local_now.weekday() + day_offset) % 7]
+            if weekday not in normalized_days:
+                continue
+
+            offset = (day_offset * 24 * 60) + (schedule_minute - now_minute)
+            if offset < 0:
+                continue
+            if offset < best_offset:
+                best_offset = offset
+                best_amount = amount_kg
+            break
+
+    return best_amount if best_amount is not None else 0.0
+
+
+def _derive_feed_sufficiency(device, feeder_level, timestamp, feed_current_kg=None, feed_required_next_kg=None):
+    current_kg = feed_current_kg
+    required_next_kg = feed_required_next_kg
+
+    if current_kg is None:
+        current_kg = _derive_feed_current_kg(device, feeder_level)
+    if required_next_kg is None:
+        required_next_kg = _derive_required_next_feed_kg(device, timestamp)
+
+    sufficient = None
+    try:
+        current_numeric = float(current_kg)
+        required_numeric = float(required_next_kg)
+        if math.isfinite(current_numeric) and math.isfinite(required_numeric):
+            sufficient = required_numeric <= 0 or current_numeric >= required_numeric
+    except (TypeError, ValueError):
+        pass
+
+    return current_kg, required_next_kg, sufficient
+
+
 def _normalize_event_key_part(value):
     text = '' if value is None else str(value).strip()
     if not text:
@@ -854,6 +962,16 @@ def _ingest_sensor_projection(
     sequence=None,
     source='esp32',
 ):
+    feed_current_kg, feed_required_next_kg, derived_feed_sufficient = _derive_feed_sufficiency(
+        device,
+        feeder_level,
+        timestamp,
+        feed_current_kg=feed_current_kg,
+        feed_required_next_kg=feed_required_next_kg,
+    )
+    if feed_sufficient is None:
+        feed_sufficient = derived_feed_sufficient
+
     payload = {
         'feeder_level_pct': feeder_level,
         'water_level_pct': water_level,

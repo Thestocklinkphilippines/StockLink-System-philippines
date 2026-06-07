@@ -260,6 +260,50 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(sensor_state.feed_current_kg, 0.4)
         self.assertEqual(sensor_state.feed_required_next_kg, 1.0)
 
+    def test_sensor_state_derives_feed_sufficiency_when_omitted(self):
+        settings_obj = SystemSettings.get_solo()
+        settings_obj.max_feeds_capacity_kg = 5.0
+        settings_obj.save(update_fields=['max_feeds_capacity_kg', 'updated_at'])
+        DeviceConfig.objects.create(
+            device=self.device,
+            config={'max_feeds_capacity_kg': 5.0},
+        )
+        Schedule.objects.create(
+            device=self.device,
+            schedule_name='Next feed',
+            enabled=True,
+            days=[],
+            time='23:59',
+            feeding_amount_kg=0.2,
+        )
+        DeviceSensorState.objects.create(
+            device=self.device,
+            feeder_level_pct=0.0,
+            water_level_pct=0.0,
+            feed_sufficient=False,
+            feed_current_kg=0.0,
+            feed_required_next_kg=0.2,
+        )
+        payload = {
+            'feeder_level_pct': 34.84395981,
+            'water_level_pct': 78.73400116,
+            'timestamp': '2026-06-07T17:37:15Z',
+            'event_id': 'sensor-derived-feed-1',
+        }
+
+        response = self._post_json('/api/device/esp32-001/sensor-state/', payload)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['feed_sufficient'])
+        self.assertAlmostEqual(body['feed_current_kg'], 1.7421979905)
+        self.assertAlmostEqual(body['feed_required_next_kg'], 0.2)
+
+        sensor_state = DeviceSensorState.objects.get(device=self.device)
+        self.assertTrue(sensor_state.feed_sufficient)
+        self.assertAlmostEqual(sensor_state.feed_current_kg, 1.7421979905)
+        self.assertAlmostEqual(sensor_state.feed_required_next_kg, 0.2)
+
     def test_feed_now_ack_is_idempotent(self):
         command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
         payload = {'status': 'executed', 'reason': 'ok', 'event_id': 'ack-1'}
