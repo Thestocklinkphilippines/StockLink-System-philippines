@@ -26,6 +26,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         timeout_seconds = max(1, int(options['timeout_seconds']))
         dry_run = bool(options['dry_run'])
+        verbosity = int(options.get('verbosity', 1))
         now_ts = timezone.now()
         cutoff = now_ts - timedelta(seconds=timeout_seconds)
 
@@ -50,14 +51,17 @@ class Command(BaseCommand):
 
             disconnected_count += 1
             if dry_run:
-                self.stdout.write(f'[dry-run] {device.device_id} stale since {last_seen.isoformat()}')
+                if verbosity > 0:
+                    self.stdout.write(f'[dry-run] {device.device_id} stale since {last_seen.isoformat()}')
                 continue
 
             _mark_device_connection_lost(device, now_ts, trigger='heartbeat_timeout')
-            self.stdout.write(f'{device.device_id} marked disconnected')
+            if verbosity > 0:
+                self.stdout.write(f'{device.device_id} marked disconnected')
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f'Checked {Device.objects.count()} devices, disconnected {disconnected_count}, skipped {skipped_count}.'
+        if verbosity > 0:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'Checked {Device.objects.count()} devices, disconnected {disconnected_count}, skipped {skipped_count}.'
+                )
             )
-        )

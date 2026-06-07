@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import time
+from io import StringIO
 
 from django.core.management import call_command
 
@@ -10,10 +11,27 @@ logger = logging.getLogger(__name__)
 
 _monitor_started = False
 _monitor_lock = threading.Lock()
+_MANAGEMENT_COMMANDS_WITHOUT_MONITOR = {
+    'check',
+    'check_device_connections',
+    'collectstatic',
+    'createsuperuser',
+    'dbshell',
+    'flush',
+    'loaddata',
+    'makemigrations',
+    'migrate',
+    'shell',
+    'showmigrations',
+    'sqlmigrate',
+    'test',
+}
 
 
 def _should_start_monitor():
     if 'test' in sys.argv:
+        return False
+    if len(sys.argv) > 1 and sys.argv[1] in _MANAGEMENT_COMMANDS_WITHOUT_MONITOR:
         return False
     if os.environ.get('ENABLE_DEVICE_CONNECTION_MONITOR', 'true').strip().lower() not in {'1', 'true', 'yes', 'on'}:
         return False
@@ -23,7 +41,12 @@ def _should_start_monitor():
 def _monitor_loop(interval_seconds):
     while True:
         try:
-            call_command('check_device_connections', verbosity=0)
+            call_command(
+                'check_device_connections',
+                verbosity=0,
+                stdout=StringIO(),
+                stderr=StringIO(),
+            )
         except Exception:
             logger.exception('Device connection monitor failed')
         time.sleep(interval_seconds)
