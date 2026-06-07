@@ -388,6 +388,42 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(Alert.objects.filter(device=self.device, alert_type='device_connection_restored').count(), 1)
         self.assertEqual(Log.objects.filter(device=self.device, log_type='device_connection_restored').count(), 1)
 
+    def test_device_list_exposes_connection_status_metadata(self):
+        self.device.last_seen = timezone.now() - timedelta(seconds=10)
+        self.device.connection_status = 'connected'
+        self.device.save(update_fields=['last_seen', 'connection_status'])
+        user = User.objects.create_user(username='device-status-viewer', password='pass12345')
+        self.client.force_login(user)
+
+        response = self.client.get('/api/devices/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['devices'], ['esp32-001'])
+        status_payload = body['device_statuses'][0]
+        self.assertEqual(status_payload['device_id'], 'esp32-001')
+        self.assertEqual(status_payload['connection_status'], 'connected')
+        self.assertTrue(status_payload['is_online'])
+        self.assertEqual(status_payload['connection_timeout_seconds'], 60)
+        self.assertIsNotNone(status_payload['last_seen'])
+
+    def test_config_response_exposes_effective_disconnected_status_when_stale(self):
+        self.device.last_seen = timezone.now() - timedelta(seconds=90)
+        self.device.connection_status = 'connected'
+        self.device.save(update_fields=['last_seen', 'connection_status'])
+        DeviceConfig.objects.create(device=self.device, config={})
+        user = User.objects.create_user(username='config-status-viewer', password='pass12345')
+        self.client.force_login(user)
+
+        response = self.client.get(f'/api/device/{self.device.device_id}/config/')
+
+        self.assertEqual(response.status_code, 200)
+        status_payload = response.json()['device_status']
+        self.assertEqual(status_payload['stored_connection_status'], 'connected')
+        self.assertEqual(status_payload['connection_status'], 'disconnected')
+        self.assertFalse(status_payload['is_online'])
+        self.assertGreaterEqual(status_payload['seconds_since_last_seen'], 60)
+
     def test_shutdown_log_creates_low_battery_shutdown_alert(self):
         payload = {
             'log_type': 'shutdown',

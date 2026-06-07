@@ -426,6 +426,35 @@ def _build_connection_event_payload(device, event_type, timestamp, *, trigger=No
     return payload
 
 
+def _get_device_presence_payload(device, now_ts=None):
+    now_ts = _normalize_dt(now_ts) or timezone.now()
+    last_seen = _normalize_dt(device.last_seen)
+    stored_status = str(device.connection_status or 'unknown').strip().lower() or 'unknown'
+    seconds_since_last_seen = None
+    is_stale = False
+
+    if last_seen is not None:
+        seconds_since_last_seen = max(0, int((now_ts - last_seen).total_seconds()))
+        is_stale = seconds_since_last_seen > DEVICE_CONNECTION_TIMEOUT_SECONDS
+
+    if last_seen is None:
+        effective_status = 'unknown'
+    elif stored_status == 'disconnected' or is_stale:
+        effective_status = 'disconnected'
+    else:
+        effective_status = 'connected'
+
+    return {
+        'device_id': device.device_id,
+        'last_seen': last_seen.isoformat() if last_seen else None,
+        'connection_status': effective_status,
+        'stored_connection_status': stored_status,
+        'is_online': effective_status == 'connected',
+        'seconds_since_last_seen': seconds_since_last_seen,
+        'connection_timeout_seconds': DEVICE_CONNECTION_TIMEOUT_SECONDS,
+    }
+
+
 def _create_connection_log_and_alert(device, alert_type, log_type, timestamp, payload, *, resolved=False):
     alert = Alert.objects.create(device=device, alert_type=alert_type, timestamp=timestamp, resolved=resolved)
     log_payload = dict(payload or {})
@@ -1556,8 +1585,12 @@ class DeviceListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        devices = Device.objects.order_by('device_id').values_list('device_id', flat=True)
-        return Response({'devices': list(devices)})
+        devices = list(Device.objects.order_by('device_id'))
+        now_ts = timezone.now()
+        return Response({
+            'devices': [device.device_id for device in devices],
+            'device_statuses': [_get_device_presence_payload(device, now_ts=now_ts) for device in devices],
+        })
 
 
 class SystemSettingsView(APIView):
@@ -2077,6 +2110,7 @@ class DeviceConfigView(APIView):
         data['config']['feed_now_command'] = _serialize_pending_feed_now_command(device)
         # Include current sensor state
         data['sensor_state'] = _get_device_sensor_state(device)
+        data['device_status'] = _get_device_presence_payload(device)
         return Response(_with_runtime_time_fields(data))
 
     def post(self, request, device_id):
