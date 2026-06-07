@@ -133,13 +133,32 @@ def _coerce_optional_float(value):
 def normalize_water_tank_config(config):
     normalized = dict(config or {}) if isinstance(config, dict) else {}
 
-    for field_name in ('water_tank_full_cm', 'water_tank_depth_cm'):
-        if field_name not in normalized:
-            continue
-
-        coerced_value = _coerce_optional_float(normalized.get(field_name))
+    if 'water_tank_full_cm' in normalized:
+        coerced_value = _coerce_optional_float(normalized.get('water_tank_full_cm'))
         if coerced_value is not None:
-            normalized[field_name] = coerced_value
+            normalized['water_tank_full_cm'] = coerced_value
+
+    return normalized
+
+
+DEPRECATED_DEVICE_CONFIG_FIELDS = (
+    'battery_adc_gain_correction',
+    'battery_adc_pin',
+    'battery_adc_reference_v',
+    'battery_divider_bottom_ohms',
+    'battery_divider_top_ohms',
+    'feeder_max_feed_height_cm',
+    'feeder_tank_bottom_distance_cm',
+    'feeder_tank_full_distance_cm',
+    'water_tank_depth_cm',
+)
+
+
+def strip_deprecated_device_config_fields(config):
+    normalized = dict(config or {}) if isinstance(config, dict) else {}
+
+    for field_name in DEPRECATED_DEVICE_CONFIG_FIELDS:
+        normalized.pop(field_name, None)
 
     return normalized
 
@@ -174,6 +193,7 @@ class DeviceConfig(models.Model):
             # Don't let unexpected errors prevent saving; leave config unchanged
             pass
 
+        self.config = strip_deprecated_device_config_fields(self.config)
         self.config = normalize_water_tank_config(self.config)
 
         super().save(*args, **kwargs)

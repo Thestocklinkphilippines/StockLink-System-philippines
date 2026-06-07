@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 .pio/
 dist/
+IOTFirmwaremk1/
+AItestFiels/
+.vscode/

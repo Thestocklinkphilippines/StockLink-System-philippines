@@ -465,7 +465,7 @@ class OfflineReplayIngestTests(TestCase):
         self.assertTrue(cfg['legacy_mode'])
         self.assertEqual(cfg['feeder_low_threshold_pct'], 18.0)
 
-    def test_device_config_save_normalizes_water_tank_geometry_fields(self):
+    def test_device_config_save_drops_deprecated_water_tank_depth_field(self):
         cfg = DeviceConfig.objects.create(
             device=self.device,
             config={
@@ -477,10 +477,10 @@ class OfflineReplayIngestTests(TestCase):
 
         cfg.refresh_from_db()
         self.assertEqual(cfg.config['water_tank_full_cm'], 12.5)
-        self.assertEqual(cfg.config['water_tank_depth_cm'], 34.75)
+        self.assertNotIn('water_tank_depth_cm', cfg.config)
         self.assertTrue(cfg.config['legacy_mode'])
 
-    def test_device_post_preserves_water_tank_geometry_fields(self):
+    def test_device_post_drops_deprecated_water_tank_depth_field(self):
         newer_ts = (timezone.now() + timedelta(seconds=5)).isoformat()
         response = self.client.post(
             f'/api/device/{self.device.device_id}/config/',
@@ -501,10 +501,10 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(response.status_code, 200)
         cfg = DeviceConfig.objects.get(device=self.device)
         self.assertEqual(cfg.config['water_tank_full_cm'], 13.25)
-        self.assertEqual(cfg.config['water_tank_depth_cm'], 39.5)
+        self.assertNotIn('water_tank_depth_cm', cfg.config)
         self.assertTrue(cfg.config['legacy_mode'])
         self.assertEqual(response.json()['config']['water_tank_full_cm'], 13.25)
-        self.assertEqual(response.json()['config']['water_tank_depth_cm'], 39.5)
+        self.assertNotIn('water_tank_depth_cm', response.json()['config'])
 
     def test_system_settings_exposes_battery_shutdown_voltage(self):
         user = User.objects.create_user(username='admin2', password='pass12345')

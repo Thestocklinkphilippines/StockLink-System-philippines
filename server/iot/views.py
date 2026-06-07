@@ -23,7 +23,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
-from .models import Device, DeviceConfig, Alert, Log, DeviceEvent, SystemSettings, DeviceSensorState, FeedNowCommand, default_grain_types, normalize_grain_config
+from .models import Device, DeviceConfig, Alert, Log, DeviceEvent, SystemSettings, DeviceSensorState, FeedNowCommand, default_grain_types, normalize_grain_config, strip_deprecated_device_config_fields
 from .models import UserApproval, AdminRoleVote
 from .serializers import DeviceSerializer, DeviceConfigSerializer, AlertSerializer, LogSerializer, DeviceEventSerializer, SystemSettingsSerializer, DeviceSensorStateSerializer, FeedNowCommandSerializer
 from .config_sync import sync_schedules_from_payload, sync_thresholds_from_payload
@@ -2009,7 +2009,7 @@ class DeviceConfigView(APIView):
         data = serializer.data
         effective_last_updated = _get_effective_config_last_updated(device, cfg)
         data['last_updated'] = effective_last_updated.isoformat()
-        data['config'] = data.get('config') or {}
+        data['config'] = strip_deprecated_device_config_fields(data.get('config') or {})
         # Always derive schedules from canonical Schedule rows.
         data['config']['schedules'] = _serialize_device_schedules(device)
         data['config']['system_timezone'] = _get_system_timezone_name()
@@ -2059,7 +2059,7 @@ class DeviceConfigView(APIView):
             sync_schedules_from_payload(device, payload)
 
             cfg, _ = DeviceConfig.objects.get_or_create(device=device)
-            cfg.config = _merge_device_config(cfg.config or {}, payload)
+            cfg.config = strip_deprecated_device_config_fields(_merge_device_config(cfg.config or {}, payload))
             cfg.config['schedules'] = _serialize_device_schedules(device)
             cfg.config['system_timezone'] = _get_system_timezone_name()
             cfg.config.update(_get_effective_max_capacity())
@@ -2113,7 +2113,7 @@ class DeviceConfigView(APIView):
         sync_thresholds_from_payload(payload)
         sync_schedules_from_payload(device, payload)
 
-        cfg.config = _merge_device_config(cfg.config or {}, payload)
+        cfg.config = strip_deprecated_device_config_fields(_merge_device_config(cfg.config or {}, payload))
         cfg.config['schedules'] = _serialize_device_schedules(device)
         cfg.config['system_timezone'] = _get_system_timezone_name()
         cfg.config.update(_get_effective_max_capacity())
