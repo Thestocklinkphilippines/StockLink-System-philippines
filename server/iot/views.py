@@ -300,6 +300,8 @@ def _merge_device_config(existing_config, incoming_config):
     merged = dict(existing_config or {}) if isinstance(existing_config, dict) else {}
     if isinstance(incoming_config, dict):
         merged.update(incoming_config)
+    # feed_now_command is a runtime delivery projection, not durable config.
+    merged.pop('feed_now_command', None)
     return merged
 
 
@@ -975,6 +977,44 @@ def _serialize_pending_feed_now_command(device):
         if cmd.status == FeedNowCommand.STATUS_PENDING:
             return _serialize_feed_now_command(cmd)
     return None
+
+
+def _reconcile_feed_now_commands_from_device_watermark(device, config):
+    if not isinstance(config, dict):
+        return 0
+
+    try:
+        last_handled_id = int(config.get('last_feed_now_command_id') or 0)
+    except (TypeError, ValueError):
+        return 0
+    if last_handled_id <= 0:
+        return 0
+
+    reconciled_count = 0
+    pending_commands = (
+        FeedNowCommand.objects
+        .filter(
+            device=device,
+            status=FeedNowCommand.STATUS_PENDING,
+            id__lte=last_handled_id,
+        )
+        .order_by('id')
+    )
+    for command in pending_commands:
+        command, reconciled_from_log = _reconcile_feed_now_command_from_logs(command)
+        if reconciled_from_log or command.status != FeedNowCommand.STATUS_PENDING:
+            reconciled_count += 1
+            continue
+
+        command.status = FeedNowCommand.STATUS_FAILED
+        command.executed_at = timezone.now()
+        command.failure_reason = (
+            f'Device watermark advanced to command {last_handled_id} without an acknowledgement.'
+        )[:255]
+        command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
+        reconciled_count += 1
+
+    return reconciled_count
 
 
 def _with_runtime_time_fields(payload):
@@ -2005,6 +2045,7 @@ class DeviceConfigView(APIView):
                 return Response({'detail': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
             device = get_object_or_404(Device, device_id=device_id)
         cfg, _ = DeviceConfig.objects.get_or_create(device=device)
+        _reconcile_feed_now_commands_from_device_watermark(device, cfg.config)
         serializer = DeviceConfigSerializer(cfg)
         data = serializer.data
         effective_last_updated = _get_effective_config_last_updated(device, cfg)
@@ -2142,6 +2183,7 @@ class DeviceConfigView(APIView):
         cfg.updated_by = 'esp32'
         cfg.last_updated = inc_dt if inc_dt.tzinfo else timezone.make_aware(inc_dt)
         cfg.save()
+        _reconcile_feed_now_commands_from_device_watermark(device, cfg.config)
         return Response(_with_runtime_time_fields(DeviceConfigSerializer(cfg).data))
 
 class LogsView(APIView):

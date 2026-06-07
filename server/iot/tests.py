@@ -315,6 +315,30 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(list_after.json()[0]['id'], command.id)
         self.assertEqual(list_after.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
 
+    def test_device_watermark_closes_stale_pending_feed_now_command(self):
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
+        cfg = DeviceConfig.objects.create(
+            device=self.device,
+            config={
+                'last_feed_now_command_id': command.id,
+                'manual_feed_snapshot_id': command.id,
+                'feed_now_command': {'id': command.id, 'amount_kg': 0.25},
+            },
+        )
+
+        response = self.client.get(
+            f'/api/device/{self.device.device_id}/config/',
+            **self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['config']['feed_now_command'])
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_FAILED)
+        self.assertIn('watermark advanced', command.failure_reason)
+        cfg.refresh_from_db()
+        self.assertNotIn('feed_now_command', cfg.config)
+
     def test_non_staff_user_can_queue_feed_now_command(self):
         user = User.objects.create_user(username='regular-feed-now', password='pass12345')
         UserApproval.objects.create(user=user, is_approved=True)

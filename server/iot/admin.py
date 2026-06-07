@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from .models import Device, DeviceConfig, Alert, Log, DeviceEvent, SystemSettings, DeviceSensorState, UserApproval, AdminRoleVote
+from .models import Device, DeviceConfig, Alert, Log, DeviceEvent, SystemSettings, DeviceSensorState, FeedNowCommand, UserApproval, AdminRoleVote
 from .models import Schedule
 from .config_sync import sync_schedules_from_payload, sync_thresholds_from_payload
 from django.utils.html import format_html
@@ -97,6 +97,15 @@ class DeviceConfigAdmin(admin.ModelAdmin):
         payload = obj.config if isinstance(obj.config, dict) else {}
         sync_thresholds_from_payload(payload)
         sync_schedules_from_payload(obj.device, payload)
+
+
+@admin.register(FeedNowCommand)
+class FeedNowCommandAdmin(admin.ModelAdmin):
+    list_display = ('id', 'device', 'amount_kg', 'status', 'requested_by', 'created_at', 'executed_at')
+    list_filter = ('status',)
+    search_fields = ('device__device_id', 'requested_by', 'failure_reason')
+    readonly_fields = ('created_at', 'updated_at', 'executed_at')
+    ordering = ('-created_at', '-id')
 
 
 @admin.register(Alert)

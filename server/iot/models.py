@@ -196,6 +196,7 @@ class DeviceConfig(models.Model):
 
         self.config = strip_deprecated_device_config_fields(self.config)
         self.config = normalize_water_tank_config(self.config)
+        self.config.pop('feed_now_command', None)
 
         super().save(*args, **kwargs)
 
