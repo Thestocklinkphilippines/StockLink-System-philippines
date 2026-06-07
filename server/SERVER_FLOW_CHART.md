@@ -1,7 +1,7 @@
 # Server Flow Chart
 
 This document maps the server-side control flow for the Django backend in this workspace. It is organized from bootstrapping to request routing, then into the major functional paths that the server owns: authentication, admin/user management, device registration and synchronization, telemetry ingestion, alerts/logs, and background monitoring.
-
+lol
 ## 1. High-Level Server Map
 
 ```mermaid
