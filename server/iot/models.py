@@ -149,6 +149,7 @@ DEPRECATED_DEVICE_CONFIG_FIELDS = (
     'battery_divider_top_ohms',
     'feeder_max_feed_height_cm',
     'feeder_tank_bottom_distance_cm',
+    'feeder_tank_depth_cm',
     'feeder_tank_full_distance_cm',
     'water_tank_depth_cm',
 )
