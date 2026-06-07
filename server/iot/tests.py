@@ -634,6 +634,74 @@ class OfflineReplayIngestTests(TestCase):
         self.assertTrue(cfg['legacy_mode'])
         self.assertEqual(cfg['feeder_low_threshold_pct'], 18.0)
 
+    def test_device_config_get_derives_total_feeds_today_from_logs(self):
+        today = timezone.localdate().isoformat()
+        DeviceConfig.objects.create(
+            device=self.device,
+            config={
+                'total_feeds_today_kg': 0.0,
+                'total_feeds_today_date': today,
+            },
+        )
+        now_ts = timezone.now()
+        Log.objects.create(
+            device=self.device,
+            log_type='feeding',
+            log_category='feeding',
+            timestamp=now_ts - timedelta(minutes=4),
+            payload={
+                'amount_kg': 0.25,
+                'remaining_kg': 1.75,
+                'trigger': 'schedule',
+            },
+        )
+        Log.objects.create(
+            device=self.device,
+            log_type='feed_now',
+            log_category='feeding',
+            timestamp=now_ts - timedelta(minutes=3),
+            payload={
+                'amount_kg': 0.15,
+                'remaining_kg': 1.60,
+                'status': 'executed',
+                'command_id': 42,
+            },
+        )
+        Log.objects.create(
+            device=self.device,
+            log_type='feeding',
+            log_category='feeding',
+            timestamp=now_ts - timedelta(minutes=2),
+            payload={
+                'amount_kg': 0.15,
+                'remaining_kg': 1.60,
+                'trigger': 'feed_now',
+                'status': 'executed',
+                'command_id': 42,
+            },
+        )
+        Log.objects.create(
+            device=self.device,
+            log_type='feed_now',
+            log_category='feeding',
+            timestamp=now_ts - timedelta(minutes=1),
+            payload={
+                'amount_kg': 0.99,
+                'status': 'failed',
+                'command_id': 43,
+            },
+        )
+
+        response = self.client.get(
+            f'/api/device/{self.device.device_id}/config/',
+            **self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cfg = response.json()['config']
+        self.assertEqual(cfg['total_feeds_today_date'], today)
+        self.assertAlmostEqual(cfg['total_feeds_today_kg'], 0.40)
+
     def test_device_config_save_drops_deprecated_water_tank_depth_field(self):
         cfg = DeviceConfig.objects.create(
             device=self.device,

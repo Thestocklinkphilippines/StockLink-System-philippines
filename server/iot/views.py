@@ -473,6 +473,80 @@ def _derive_feed_sufficiency(device, feeder_level, timestamp, feed_current_kg=No
     return current_kg, required_next_kg, sufficient
 
 
+def _get_local_day_bounds(now_ts=None):
+    local_now = timezone.localtime(_normalize_dt(now_ts) or timezone.now())
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_start, local_start + timedelta(days=1), local_start.date().isoformat()
+
+
+def _derive_total_feeds_today_kg(device, now_ts=None):
+    start_ts, end_ts, today = _get_local_day_bounds(now_ts)
+    total_kg = 0.0
+    counted_feed_now_commands = set()
+    ignored_statuses = {'failed', 'fail', 'error', 'cancelled', 'canceled', 'rejected', 'skipped', 'pending'}
+
+    logs = Log.objects.filter(
+        device=device,
+        log_type__in=['feeding', 'feed_now'],
+        timestamp__gte=start_ts,
+        timestamp__lt=end_ts,
+    ).order_by('timestamp', 'id')
+
+    for log in logs:
+        payload = log.payload if isinstance(log.payload, dict) else {}
+        status_value = str(payload.get('status') or '').strip().lower()
+        if status_value in ignored_statuses:
+            continue
+
+        try:
+            amount_kg = float(payload.get('amount_kg'))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(amount_kg) or amount_kg <= 0:
+            continue
+
+        trigger = str(payload.get('trigger') or '').strip().lower()
+        command_id = payload.get('command_id')
+        feed_now_key = None
+        if log.log_type == 'feed_now' or trigger == 'feed_now':
+            try:
+                command_id_int = int(command_id)
+            except (TypeError, ValueError):
+                command_id_int = None
+            if command_id_int and command_id_int > 0:
+                feed_now_key = command_id_int
+
+        if feed_now_key is not None:
+            if feed_now_key in counted_feed_now_commands:
+                continue
+            counted_feed_now_commands.add(feed_now_key)
+
+        total_kg += amount_kg
+
+    return total_kg, today
+
+
+def _apply_daily_feed_total_projection(device, config, now_ts=None):
+    if not isinstance(config, dict):
+        return config
+
+    derived_total, today = _derive_total_feeds_today_kg(device, now_ts=now_ts)
+    stored_date = str(config.get('total_feeds_today_date') or '').strip()
+    try:
+        stored_total = float(config.get('total_feeds_today_kg'))
+    except (TypeError, ValueError):
+        stored_total = 0.0
+    if not math.isfinite(stored_total) or stored_total < 0:
+        stored_total = 0.0
+
+    if stored_date in {'', today}:
+        config['total_feeds_today_kg'] = max(stored_total, derived_total)
+    else:
+        config['total_feeds_today_kg'] = derived_total
+    config['total_feeds_today_date'] = today
+    return config
+
+
 def _normalize_event_key_part(value):
     text = '' if value is None else str(value).strip()
     if not text:
@@ -2257,7 +2331,7 @@ class DeviceConfigView(APIView):
         data['config'].update(_get_effective_thresholds())
         data['config'].update(_get_effective_alert_thresholds())
         data['config'].setdefault('low_battery_shutdown_v', _get_effective_battery_shutdown_threshold()['low_battery_shutdown_v'])
-        data['config'].setdefault('total_feeds_today_kg', 0.0)
+        _apply_daily_feed_total_projection(device, data['config'])
         data['config']['last_updated'] = data['last_updated']
         data['config']['updated_by'] = data.get('updated_by') or 'server'
         data['config']['feed_now_command'] = _serialize_pending_feed_now_command(device)
@@ -2300,7 +2374,7 @@ class DeviceConfigView(APIView):
             cfg.config.update(_get_effective_thresholds())
             cfg.config.update(_get_effective_alert_thresholds())
             cfg.config.setdefault('low_battery_shutdown_v', _get_effective_battery_shutdown_threshold()['low_battery_shutdown_v'])
-            cfg.config.setdefault('total_feeds_today_kg', 0.0)
+            _apply_daily_feed_total_projection(device, cfg.config)
             # Ensure max_single_feed_kg stored (prefer payload/device value)
             try:
                 cfg.config.setdefault('max_single_feed_kg', _compute_max_single_feed_kg(device, cfg=cfg))
@@ -2333,7 +2407,10 @@ class DeviceConfigView(APIView):
         # normalize timezone-awareness
         if server_ts is not None and inc_dt <= server_ts:
             # Server has newer or equal -> reject and return current server copy
-            return Response({'detail': 'Server copy is newer', 'server_config': DeviceConfigSerializer(cfg).data}, status=status.HTTP_409_CONFLICT)
+            server_config_data = DeviceConfigSerializer(cfg).data
+            if isinstance(server_config_data.get('config'), dict):
+                _apply_daily_feed_total_projection(device, server_config_data['config'])
+            return Response({'detail': 'Server copy is newer', 'server_config': server_config_data}, status=status.HTTP_409_CONFLICT)
 
         # Accept device config
         candidate_max_dt = _parse_optional_dt(payload.get('max_feeds_capacity_updated_at')) or inc_dt
@@ -2361,7 +2438,7 @@ class DeviceConfigView(APIView):
         cfg.config.update(_get_effective_thresholds())
         cfg.config.update(_get_effective_alert_thresholds())
         cfg.config.setdefault('low_battery_shutdown_v', _get_effective_battery_shutdown_threshold()['low_battery_shutdown_v'])
-        cfg.config.setdefault('total_feeds_today_kg', 0.0)
+        _apply_daily_feed_total_projection(device, cfg.config)
         # Preserve device-provided max_single_feed_kg, otherwise compute and store one.
         try:
             cfg.config.setdefault('max_single_feed_kg', _compute_max_single_feed_kg(device, cfg=cfg))
