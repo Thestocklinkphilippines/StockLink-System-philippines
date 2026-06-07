@@ -8,3 +8,4 @@ dist/
 IOTFirmwaremk1/
 AItestFiels/
 .vscode/
+db.sqlite3
