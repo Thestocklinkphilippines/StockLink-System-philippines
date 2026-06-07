@@ -108,6 +108,71 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()), 205)
 
+    def test_manual_feeding_log_keeps_manual_trigger(self):
+        payload = {
+            'log_type': 'feeding',
+            'timestamp': '2026-05-16T10:00:00Z',
+            'event_id': 'manual-feed-1',
+            'payload': {
+                'amount_kg': 0.623,
+                'remaining_kg': 1.552,
+                'feeder_level_pct': 31.0,
+                'trigger': 'manual',
+                'source': 'control_panel',
+            },
+        }
+
+        response = self._post_json('/api/device/esp32-001/logs/', payload)
+
+        self.assertEqual(response.status_code, 201)
+        log = Log.objects.get(device=self.device, log_type='feeding')
+        self.assertEqual(log.payload['trigger'], 'manual')
+        self.assertEqual(log.payload['feed_type'], 'manual')
+        self.assertEqual(log.payload['source'], 'control_panel')
+
+    def test_scheduled_feeding_log_keeps_schedule_metadata(self):
+        payload = {
+            'log_type': 'feeding',
+            'timestamp': '2026-05-16T11:30:00Z',
+            'event_id': 'scheduled-feed-1',
+            'payload': {
+                'amount_kg': 0.25,
+                'remaining_kg': 1.75,
+                'feeder_level_pct': 87.5,
+                'trigger': 'schedule',
+                'schedule_id': 12,
+                'schedule_name': 'Morning feed',
+                'schedule_time': '11:30',
+            },
+        }
+
+        response = self._post_json('/api/device/esp32-001/logs/', payload)
+
+        self.assertEqual(response.status_code, 201)
+        log = Log.objects.get(device=self.device, log_type='feeding')
+        self.assertEqual(log.payload['trigger'], 'schedule')
+        self.assertEqual(log.payload['feed_type'], 'scheduled')
+        self.assertEqual(log.payload['schedule_id'], 12)
+        self.assertEqual(log.payload['schedule_name'], 'Morning feed')
+
+    def test_legacy_feeding_log_without_trigger_is_unknown(self):
+        payload = {
+            'log_type': 'feeding',
+            'timestamp': '2026-05-16T12:00:00Z',
+            'event_id': 'legacy-feed-1',
+            'payload': {
+                'amount_kg': 0.1,
+                'remaining_kg': 1.9,
+            },
+        }
+
+        response = self._post_json('/api/device/esp32-001/logs/', payload)
+
+        self.assertEqual(response.status_code, 201)
+        log = Log.objects.get(device=self.device, log_type='feeding')
+        self.assertEqual(log.payload['trigger'], 'unknown')
+        self.assertEqual(log.payload['feed_type'], 'unknown')
+
     def test_batch_events_duplicate_and_sensor_projection(self):
         batch = {
             'events': [

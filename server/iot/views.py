@@ -53,6 +53,41 @@ def _derive_log_category(log_type):
     return 'feeding' if str(log_type or '').strip().lower() == 'feeding' else 'system'
 
 
+def _normalize_feed_log_payload(log_type, payload):
+    normalized = dict(payload or {}) if isinstance(payload, dict) else {}
+    normalized_log_type = str(log_type or '').strip().lower()
+    if normalized_log_type not in {'feeding', 'feed_now'}:
+        return normalized
+
+    nested_payload = normalized.get('payload') if isinstance(normalized.get('payload'), dict) else {}
+    raw_trigger = (
+        normalized.get('trigger')
+        or nested_payload.get('trigger')
+        or normalized.get('event')
+        or nested_payload.get('event')
+    )
+    trigger = str(raw_trigger or '').strip().lower()
+
+    manual_triggers = {'manual', 'manual_feed', 'control_panel', 'keypad', 'serial_schedule_run'}
+    scheduled_triggers = {'schedule', 'scheduled', 'scheduled_feed', 'scheduler'}
+
+    if normalized_log_type == 'feed_now' or trigger == 'feed_now':
+        trigger = 'feed_now'
+    elif trigger in manual_triggers:
+        trigger = 'manual'
+    elif trigger in scheduled_triggers:
+        trigger = 'schedule'
+    elif not trigger:
+        trigger = 'unknown'
+
+    normalized['trigger'] = trigger
+    normalized.setdefault(
+        'feed_type',
+        'manual' if trigger in {'manual', 'feed_now'} else ('scheduled' if trigger == 'schedule' else 'unknown'),
+    )
+    return normalized
+
+
 def _get_system_timezone_name():
     return SystemSettings.get_timezone_name()
 
@@ -2238,6 +2273,7 @@ class LogsView(APIView):
         payload = request.data.get('payload', {})
         if not isinstance(payload, dict):
             payload = {}
+        payload = _normalize_feed_log_payload(log_type, payload)
 
         timestamp_str = request.data.get('timestamp')
         if not timestamp_str:
@@ -2955,6 +2991,7 @@ class DeviceEventIngestView(APIView):
                 continue
 
             log_type = event_type
+            payload = _normalize_feed_log_payload(log_type, payload)
             event, log, duplicate, refreshed = _ingest_log_projection(
                 device=device,
                 log_type=log_type,

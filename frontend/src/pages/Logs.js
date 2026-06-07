@@ -105,7 +105,23 @@ function matchesManualFeedCommand(log, feedNowCommands = []) {
 
 function isManualTrigger(log) {
   const p = log?.payload || {}
-  return String(p.trigger || '').trim().toLowerCase() === 'manual'
+  const trigger = String(p.trigger || '').trim().toLowerCase()
+  const feedType = String(p.feed_type || '').trim().toLowerCase()
+  return trigger === 'manual' || trigger === 'feed_now' || feedType === 'manual'
+}
+
+function isScheduledFeedLog(log) {
+  const p = log?.payload || {}
+  const trigger = String(p.trigger || '').trim().toLowerCase()
+  const feedType = String(p.feed_type || '').trim().toLowerCase()
+  return trigger === 'schedule' || feedType === 'scheduled'
+}
+
+function isUnknownFeedLog(log) {
+  const p = log?.payload || {}
+  const trigger = String(p.trigger || '').trim().toLowerCase()
+  const feedType = String(p.feed_type || '').trim().toLowerCase()
+  return trigger === 'unknown' || feedType === 'unknown'
 }
 
 function isManualFeedLog(log, feedNowCommands = []) {
@@ -130,6 +146,8 @@ function formatFeedHeadline(log, feedNowCommands = []) {
   }
 
   if (type === 'feeding') {
+    if (isUnknownFeedLog(log)) return 'Feed dispensed'
+    if (isScheduledFeedLog(log) && p.schedule_name) return `Scheduled feeding: ${p.schedule_name}`
     return 'Scheduled feeding'
   }
 
@@ -233,6 +251,7 @@ export default function Logs() {
   const resolveScheduledFeedName = (log) => {
     const p = log?.payload || {}
     if (isManualFeedLog(log, feedNowCommands)) return 'Manual feed'
+    if (isUnknownFeedLog(log)) return 'Unclassified feed'
     if (p.schedule_name) return String(p.schedule_name)
 
     if (p.schedule_id != null) {
@@ -311,8 +330,7 @@ export default function Logs() {
       if (p.amount_kg != null) amount = Number(p.amount_kg).toFixed(3)
       else if (p.amount_g != null) amount = (Number(p.amount_g) / 1000).toFixed(3)
 
-      const t = String(log?.log_type || '').toLowerCase()
-      const typeVal = (t === 'feed_now' || p.event === 'feed_now') ? 'manual' : 'schedule'
+      const typeVal = isManualFeedLog(log, feedNowCommands) ? 'manual' : (isScheduledFeedLog(log) ? 'schedule' : 'unknown')
 
       rows.push([timeVal, name, amount, typeVal])
     }
