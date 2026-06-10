@@ -217,6 +217,7 @@ class Alert(models.Model):
     device = models.ForeignKey(Device, on_delete=models.CASCADE)
     alert_type = models.CharField(max_length=64)
     timestamp = models.DateTimeField()  # When alert first occurred
+    resolved_at = models.DateTimeField(null=True, blank=True)
     last_updated = models.DateTimeField(auto_now=True)  # Last time alert was seen/refreshed
     refresh_count = models.IntegerField(default=1)  # How many times we've seen this alert
     resolved = models.BooleanField(default=False)

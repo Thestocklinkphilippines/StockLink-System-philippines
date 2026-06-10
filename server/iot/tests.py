@@ -304,6 +304,75 @@ class OfflineReplayIngestTests(TestCase):
         self.assertAlmostEqual(sensor_state.feed_current_kg, 1.7421979905)
         self.assertAlmostEqual(sensor_state.feed_required_next_kg, 0.2)
 
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_feed_alert_promotes_to_critical_then_silently_demotes_and_resolves(self):
+        settings_obj = SystemSettings.get_solo()
+        settings_obj.alert_recipients = ['alerts@example.com']
+        settings_obj.save(update_fields=['alert_recipients', 'updated_at'])
+        mail.outbox.clear()
+
+        low_response = self._post_json(
+            '/api/device/esp32-001/sensor-state/',
+            {'feeder_level_pct': 10, 'water_level_pct': 50, 'event_id': 'feed-low-1'},
+        )
+        low_alert = Alert.objects.get(device=self.device, alert_type='low_feed', resolved=False)
+        low_alert_id = low_alert.id
+
+        critical_response = self._post_json(
+            '/api/device/esp32-001/sensor-state/',
+            {'feeder_level_pct': 0, 'water_level_pct': 50, 'event_id': 'feed-critical-1'},
+        )
+        critical_alert = Alert.objects.get(device=self.device, alert_type='critical_low_feed', resolved=False)
+
+        sticky_response = self._post_json(
+            '/api/device/esp32-001/sensor-state/',
+            {'feeder_level_pct': 0.5, 'water_level_pct': 50, 'event_id': 'feed-critical-sticky-1'},
+        )
+        demoted_response = self._post_json(
+            '/api/device/esp32-001/sensor-state/',
+            {'feeder_level_pct': 1, 'water_level_pct': 50, 'event_id': 'feed-critical-demote-1'},
+        )
+        recovered_response = self._post_json(
+            '/api/device/esp32-001/sensor-state/',
+            {'feeder_level_pct': 80, 'water_level_pct': 50, 'event_id': 'feed-recovered-1'},
+        )
+
+        self.assertTrue(low_response.json()['triggered_low_feed_alert'])
+        self.assertEqual(critical_alert.id, low_alert_id)
+        self.assertTrue(critical_response.json()['triggered_critical_feed_alert'])
+        self.assertTrue(critical_response.json()['promoted_low_feed_to_critical'])
+        self.assertFalse(Alert.objects.filter(device=self.device, alert_type='low_feed', resolved=False).exists())
+        self.assertTrue(sticky_response.json()['refreshed_critical_feed_alert'])
+        self.assertTrue(demoted_response.json()['demoted_critical_feed_to_low'])
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertIn('critical_low_feed triggered', mail.outbox[-1].subject)
+        self.assertEqual(
+            Alert.objects.get(device=self.device, alert_type='low_feed').payload['transition'],
+            'demoted_from_critical',
+        )
+        self.assertEqual(recovered_response.json()['low_feed_alerts_auto_resolved'], 1)
+        self.assertTrue(Alert.objects.get(device=self.device, alert_type='low_feed').resolved)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_water_level_jumping_to_zero_triggers_only_critical_alert(self):
+        settings_obj = SystemSettings.get_solo()
+        settings_obj.alert_recipients = ['alerts@example.com']
+        settings_obj.save(update_fields=['alert_recipients', 'updated_at'])
+        mail.outbox.clear()
+
+        response = self._post_json(
+            '/api/device/esp32-001/sensor-state/',
+            {'feeder_level_pct': 50, 'water_level_pct': 0, 'event_id': 'water-instant-critical-1'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['triggered_critical_water_alert'])
+        self.assertFalse(response.json()['triggered_low_water_alert'])
+        self.assertFalse(Alert.objects.filter(device=self.device, alert_type='low_water').exists())
+        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='critical_low_water', resolved=False).count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('critical_low_water triggered', mail.outbox[0].subject)
+
     def test_feed_now_ack_is_idempotent(self):
         command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
         payload = {'status': 'executed', 'reason': 'ok', 'event_id': 'ack-1'}
@@ -424,6 +493,21 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(list_after.json()[0]['id'], command.id)
         self.assertEqual(list_after.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
 
+    def test_feed_now_command_runtime_timestamps_use_manila_timezone(self):
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
+
+        config_response = self.client.get(
+            f'/api/device/{self.device.device_id}/config/',
+            **self.auth_headers,
+        )
+
+        self.assertEqual(config_response.status_code, 200)
+        runtime_command = config_response.json()['config']['feed_now_command']
+        self.assertEqual(runtime_command['id'], command.id)
+        self.assertTrue(runtime_command['created_at'].endswith('+08:00'))
+        self.assertTrue(runtime_command['updated_at'].endswith('+08:00'))
+        self.assertIsNone(runtime_command['executed_at'])
+
     def test_device_watermark_closes_stale_pending_feed_now_command(self):
         command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
         cfg = DeviceConfig.objects.create(
@@ -466,12 +550,12 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(FeedNowCommand.objects.get(device=self.device).requested_by, user.username)
 
     def test_connection_timeout_creates_alert_and_heartbeat_restores(self):
-        stale_seen = timezone.now() - timedelta(seconds=61)
+        stale_seen = timezone.now() - timedelta(seconds=151)
         self.device.last_seen = stale_seen
         self.device.connection_status = 'connected'
         self.device.save(update_fields=['last_seen', 'connection_status'])
 
-        call_command('check_device_connections', timeout_seconds=60, stdout=StringIO())
+        call_command('check_device_connections', stdout=StringIO())
 
         self.device.refresh_from_db()
         self.assertEqual(self.device.connection_status, 'disconnected')
@@ -494,8 +578,47 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.device.refresh_from_db()
         self.assertEqual(self.device.connection_status, 'connected')
-        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='device_connection_restored').count(), 1)
+        connection_alert = Alert.objects.get(device=self.device, alert_type='device_connection_loss')
+        self.assertTrue(connection_alert.resolved)
+        self.assertIsNotNone(connection_alert.resolved_at)
+        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='device_connection_restored').count(), 0)
         self.assertEqual(Log.objects.filter(device=self.device, log_type='device_connection_restored').count(), 1)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_power_restored_sends_one_resolved_email_for_active_outage(self):
+        settings_obj = SystemSettings.get_solo()
+        settings_obj.alert_recipients = ['alerts@example.com']
+        settings_obj.save(update_fields=['alert_recipients', 'updated_at'])
+        mail.outbox.clear()
+
+        outage_response = self._post_json(
+            '/api/device/esp32-001/alerts/',
+            {'alert_type': 'power_outage'},
+        )
+        restored_response = self._post_json(
+            '/api/device/esp32-001/alerts/',
+            {'alert_type': 'power_restored'},
+        )
+        duplicate_response = self._post_json(
+            '/api/device/esp32-001/alerts/',
+            {'alert_type': 'power_restored'},
+        )
+
+        self.assertEqual(outage_response.status_code, 201)
+        self.assertEqual(restored_response.status_code, 200)
+        self.assertTrue(restored_response.json()['email']['ok'])
+        self.assertEqual(restored_response.json()['resolved_outage_alerts'], 1)
+        self.assertEqual(duplicate_response.status_code, 200)
+        self.assertTrue(duplicate_response.json()['deduped'])
+        self.assertIsNone(duplicate_response.json()['email'])
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertIn('power_outage resolved', mail.outbox[-1].subject)
+        self.assertIn('Status: resolved', mail.outbox[-1].body)
+        self.assertIn('outage_duration_seconds', mail.outbox[-1].body)
+        outage_alert = Alert.objects.get(device=self.device, alert_type='power_outage')
+        self.assertTrue(outage_alert.resolved)
+        self.assertIsNotNone(outage_alert.resolved_at)
+        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='power_restored').count(), 0)
 
     def test_device_list_exposes_connection_status_metadata(self):
         self.device.last_seen = timezone.now() - timedelta(seconds=10)
@@ -513,11 +636,11 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(status_payload['device_id'], 'esp32-001')
         self.assertEqual(status_payload['connection_status'], 'connected')
         self.assertTrue(status_payload['is_online'])
-        self.assertEqual(status_payload['connection_timeout_seconds'], 60)
+        self.assertEqual(status_payload['connection_timeout_seconds'], 150)
         self.assertIsNotNone(status_payload['last_seen'])
 
     def test_config_response_exposes_effective_disconnected_status_when_stale(self):
-        self.device.last_seen = timezone.now() - timedelta(seconds=90)
+        self.device.last_seen = timezone.now() - timedelta(seconds=151)
         self.device.connection_status = 'connected'
         self.device.save(update_fields=['last_seen', 'connection_status'])
         DeviceConfig.objects.create(device=self.device, config={})
@@ -531,7 +654,7 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(status_payload['stored_connection_status'], 'connected')
         self.assertEqual(status_payload['connection_status'], 'disconnected')
         self.assertFalse(status_payload['is_online'])
-        self.assertGreaterEqual(status_payload['seconds_since_last_seen'], 60)
+        self.assertGreaterEqual(status_payload['seconds_since_last_seen'], 150)
 
     def test_shutdown_log_creates_low_battery_shutdown_alert(self):
         payload = {
@@ -582,13 +705,14 @@ class OfflineReplayIngestTests(TestCase):
 
         response = self._post_json('/api/device/esp32-001/alerts/', payload)
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
         active_alert = Alert.objects.get(device=self.device, alert_type='low_battery_shutdown')
         self.assertTrue(active_alert.resolved)
+        self.assertIsNotNone(active_alert.resolved_at)
         self.assertEqual(active_alert.payload['battery_voltage_v'], 10.4)
-        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='low_battery_shutdown_resolved').count(), 1)
+        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='low_battery_shutdown_resolved').count(), 0)
 
-    def test_shutdown_alert_auto_resolves_after_grace_period(self):
+    def test_shutdown_alert_stays_active_until_heartbeat(self):
         Alert.objects.create(
             device=self.device,
             alert_type='low_battery_shutdown',
@@ -602,8 +726,34 @@ class OfflineReplayIngestTests(TestCase):
         call_command('resolve_shutdown_alerts', grace_seconds=5, stdout=StringIO())
 
         active_alert = Alert.objects.get(device=self.device, alert_type='low_battery_shutdown')
+        self.assertFalse(active_alert.resolved)
+        self.assertIsNone(active_alert.resolved_at)
+
+        user = User.objects.create_user(username='shutdown-alert-viewer', password='pass12345')
+        web_client = Client()
+        web_client.force_login(user)
+        alerts_response = web_client.get('/api/device/esp32-001/alerts/')
+        self.assertEqual(alerts_response.status_code, 200)
+        active_alert.refresh_from_db()
+        self.assertFalse(active_alert.resolved)
+
+        heartbeat_payload = {
+            'log_type': 'heartbeat',
+            'timestamp': timezone.now().isoformat(),
+            'event_id': 'heartbeat-after-shutdown-1',
+            'boot_id': 'boot-after-shutdown',
+            'sequence': 1,
+            'source': 'esp32',
+            'payload': {'uptime_ms': 1000},
+        }
+        response = self._post_json('/api/device/esp32-001/logs/', heartbeat_payload)
+
+        self.assertEqual(response.status_code, 201)
+        active_alert.refresh_from_db()
         self.assertTrue(active_alert.resolved)
-        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='low_battery_shutdown_resolved').count(), 1)
+        self.assertIsNotNone(active_alert.resolved_at)
+        self.assertEqual(active_alert.payload['resolved_reason'], 'device_heartbeat_restored')
+        self.assertEqual(Alert.objects.filter(device=self.device, alert_type='low_battery_shutdown_resolved').count(), 0)
         self.assertEqual(Log.objects.filter(device=self.device, log_type='shutdown_resolved').count(), 1)
 
     def test_device_config_merge_preserves_existing_battery_threshold(self):

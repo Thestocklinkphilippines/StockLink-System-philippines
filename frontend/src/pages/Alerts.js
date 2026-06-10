@@ -51,7 +51,20 @@ export default function Alerts(){
             {alerts.map(a=> (
               <li key={a.id} className={`alerts-item ${a.resolved ? 'alerts-item-resolved' : 'alerts-item-active'}`}>
                 <span className="alerts-item-type">{humanizeAlertType(a.alert_type)}</span>
-                <span className="alerts-item-time">{formatDateTime(a.timestamp, 'Unknown time')}</span>
+                <span className="alerts-item-times">
+                  <span className="alerts-item-time">
+                    <span className="alerts-item-time-label">Occurred</span>
+                    <time dateTime={a.timestamp}>{formatDateTime(a.timestamp, 'Unknown time')}</time>
+                  </span>
+                  {a.resolved && (
+                    <span className="alerts-item-time">
+                      <span className="alerts-item-time-label">Resolved</span>
+                      <time dateTime={a.resolved_at || a.payload?.resolved_at || a.last_updated}>
+                        {formatDateTime(a.resolved_at || a.payload?.resolved_at || a.last_updated, 'Unknown time')}
+                      </time>
+                    </span>
+                  )}
+                </span>
                 <span className={`alerts-item-status ${a.resolved ? 'ok' : 'warn'}`}>{a.resolved ? 'Resolved' : 'Active'}</span>
               </li>
             ))}

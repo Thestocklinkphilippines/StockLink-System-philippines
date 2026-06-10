@@ -4,17 +4,21 @@ from iot.views import LOW_BATTERY_SHUTDOWN_RESOLVE_AFTER_SECONDS, _resolve_stale
 
 
 class Command(BaseCommand):
-    help = 'Resolve stale low-battery shutdown alerts after the configured grace period.'
+    help = 'Compatibility command; shutdown alerts now resolve only after a device heartbeat.'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--grace-seconds',
             type=int,
             default=LOW_BATTERY_SHUTDOWN_RESOLVE_AFTER_SECONDS,
-            help='How long a shutdown alert may remain unresolved before being auto-resolved.',
+            help='Deprecated compatibility option; shutdown alerts are not resolved by timeout.',
         )
 
     def handle(self, *args, **options):
         grace_seconds = max(1, int(options['grace_seconds']))
         resolved_count = _resolve_stale_shutdown_alerts(grace_seconds=grace_seconds)
-        self.stdout.write(self.style.SUCCESS(f'Resolved {resolved_count} stale shutdown alert(s).'))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'Resolved {resolved_count} stale shutdown alert(s); heartbeat recovery is required.'
+            )
+        )

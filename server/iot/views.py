@@ -37,7 +37,7 @@ from django.forms.models import model_to_dict
 logger = logging.getLogger(__name__)
 DEFAULT_IMPORTANT_LOG_KEYWORDS = ['critical', 'error', 'fault', 'warning', 'alert', 'offline', 'fail']
 POWER_ALERT_DEDUP_SECONDS = 45
-DEVICE_CONNECTION_TIMEOUT_SECONDS = 60
+DEVICE_CONNECTION_TIMEOUT_SECONDS = 150
 DEVICE_CONNECTION_LOSS_ALERT_TYPE = 'device_connection_loss'
 DEVICE_CONNECTION_RESTORED_ALERT_TYPE = 'device_connection_restored'
 DEVICE_CONNECTION_LOSS_LOG_TYPE = 'device_connection_loss'
@@ -46,6 +46,8 @@ LOW_BATTERY_SHUTDOWN_ALERT_TYPE = 'low_battery_shutdown'
 LOW_BATTERY_SHUTDOWN_RESOLVED_ALERT_TYPE = 'low_battery_shutdown_resolved'
 LOW_BATTERY_SHUTDOWN_LOG_TYPE = 'shutdown'
 LOW_BATTERY_SHUTDOWN_RESOLVE_AFTER_SECONDS = 5
+CRITICAL_LEVEL_THRESHOLD_PCT = 0.0
+CRITICAL_LEVEL_RECOVERY_PCT = 1.0
 EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60
 
 
@@ -673,7 +675,14 @@ def _get_device_presence_payload(device, now_ts=None):
 
 
 def _create_connection_log_and_alert(device, alert_type, log_type, timestamp, payload, *, resolved=False):
-    alert = Alert.objects.create(device=device, alert_type=alert_type, timestamp=timestamp, resolved=resolved)
+    alert = Alert.objects.create(
+        device=device,
+        alert_type=alert_type,
+        timestamp=timestamp,
+        resolved=resolved,
+        resolved_at=timestamp if resolved else None,
+        payload=payload or {},
+    )
     log_payload = dict(payload or {})
     log_payload['alert_id'] = alert.id
     try:
@@ -688,6 +697,25 @@ def _create_connection_log_and_alert(device, alert_type, log_type, timestamp, pa
         logger.exception('Failed to create %s log', log_type)
     email_result = _send_alert_notification(alert, is_refresh=False)
     return alert, email_result
+
+
+def _resolve_alert(alert, resolved_at, *, payload=None, reason=None, send_email=False):
+    if alert is None or alert.resolved:
+        return None
+
+    resolved_at = _normalize_dt(resolved_at) or timezone.now()
+    merged_payload = dict(alert.payload or {})
+    if isinstance(payload, dict):
+        merged_payload.update(payload)
+    merged_payload['resolved_at'] = resolved_at.isoformat()
+    if reason:
+        merged_payload['resolved_reason'] = reason
+
+    alert.resolved = True
+    alert.resolved_at = resolved_at
+    alert.payload = merged_payload
+    alert.save(update_fields=['resolved', 'resolved_at', 'payload', 'last_updated'])
+    return _send_alert_notification(alert, is_refresh=False) if send_email else None
 
 
 def _create_or_refresh_shutdown_alert(device, timestamp, payload, *, alert_type=LOW_BATTERY_SHUTDOWN_ALERT_TYPE, log_type=None, create_log=False):
@@ -724,10 +752,9 @@ def _create_or_refresh_shutdown_alert(device, timestamp, payload, *, alert_type=
                     logger.exception('Failed to create/update %s log', log_type)
             return existing_alert, True, True, None
 
-        existing_alert.timestamp = timestamp
         existing_alert.refresh_count += 1
         existing_alert.payload = shutdown_payload
-        existing_alert.save(update_fields=['timestamp', 'refresh_count', 'payload', 'last_updated'])
+        existing_alert.save(update_fields=['refresh_count', 'payload', 'last_updated'])
         email_result = _send_alert_notification(existing_alert, is_refresh=True)
         if create_log and log_type:
             try:
@@ -767,54 +794,49 @@ def _create_or_refresh_shutdown_alert(device, timestamp, payload, *, alert_type=
 
 
 def _resolve_stale_shutdown_alerts(device=None, now_ts=None, *, grace_seconds=LOW_BATTERY_SHUTDOWN_RESOLVE_AFTER_SECONDS):
-    now_ts = _normalize_dt(now_ts) or timezone.now()
-    cutoff = now_ts - timedelta(seconds=max(1, int(grace_seconds)))
+    # Kept for command compatibility. Shutdown alerts now resolve only after
+    # the device reconnects and sends a heartbeat.
+    return 0
 
-    query = Alert.objects.filter(
+
+def _resolve_shutdown_alerts_on_heartbeat(device, seen_at, *, source='esp32', extra_payload=None):
+    seen_at = _normalize_dt(seen_at) or timezone.now()
+    active_alerts = Alert.objects.filter(
+        device=device,
         alert_type=LOW_BATTERY_SHUTDOWN_ALERT_TYPE,
         resolved=False,
-        timestamp__lte=cutoff,
     ).order_by('timestamp', 'id')
-    if device is not None:
-        query = query.filter(device=device)
 
-    resolved_count = 0
-    for alert in query:
-        resolved_payload = dict(alert.payload or {})
-        resolved_payload.setdefault('event', LOW_BATTERY_SHUTDOWN_RESOLVED_ALERT_TYPE)
-        resolved_payload['resolved_at'] = now_ts.isoformat()
-        resolved_payload['resolved_reason'] = 'timeout'
-        resolved_payload['resolved_after_seconds'] = max(0, int((now_ts - alert.timestamp).total_seconds()))
-
-        alert.resolved = True
-        alert.payload = resolved_payload
-        alert.save(update_fields=['resolved', 'payload', 'last_updated'])
-
-        try:
-            Alert.objects.create(
-                device=alert.device,
-                alert_type=LOW_BATTERY_SHUTDOWN_RESOLVED_ALERT_TYPE,
-                timestamp=now_ts,
-                resolved=True,
-                payload=resolved_payload,
-            )
-        except Exception:
-            logger.exception('Failed to create low battery shutdown resolved alert')
-
+    resolved_alerts = []
+    for alert in active_alerts:
+        payload = {
+            'event': LOW_BATTERY_SHUTDOWN_RESOLVED_ALERT_TYPE,
+            'source': source,
+            'trigger': 'heartbeat',
+            'shutdown_duration_seconds': max(0, int((seen_at - alert.timestamp).total_seconds())),
+        }
+        if isinstance(extra_payload, dict):
+            payload.update(extra_payload)
+        email_result = _resolve_alert(
+            alert,
+            seen_at,
+            payload=payload,
+            reason='device_heartbeat_restored',
+            send_email=True,
+        )
+        resolved_alerts.append((alert, email_result))
         try:
             _ingest_log_projection(
-                device=alert.device,
+                device=device,
                 log_type=f'{LOW_BATTERY_SHUTDOWN_LOG_TYPE}_resolved',
-                payload=resolved_payload,
-                log_timestamp=now_ts,
+                payload=alert.payload,
+                log_timestamp=seen_at,
                 source='server',
             )
         except Exception:
             logger.exception('Failed to create low battery shutdown resolved log')
 
-        resolved_count += 1
-
-    return resolved_count
+    return resolved_alerts
 
 
 def _mark_device_connection_lost(device, detected_at=None, *, trigger='heartbeat_timeout'):
@@ -859,7 +881,19 @@ def _mark_device_connection_seen(device, seen_at=None, *, trigger='heartbeat', s
     device.connection_status = 'connected'
     device.save(update_fields=['last_seen', 'connection_status'])
 
+    shutdown_resolutions = []
+    if trigger == 'heartbeat':
+        shutdown_resolutions = _resolve_shutdown_alerts_on_heartbeat(
+            device,
+            seen_at,
+            source=source,
+            extra_payload=extra_payload,
+        )
+
     if previous_status != 'disconnected':
+        if shutdown_resolutions:
+            alert, email_result = shutdown_resolutions[0]
+            return alert, True, email_result
         return None, False, None
 
     offline_seconds = None
@@ -877,21 +911,41 @@ def _mark_device_connection_seen(device, seen_at=None, *, trigger='heartbeat', s
         extra=extra_payload,
     )
 
-    Alert.objects.filter(
+    active_connection_alerts = Alert.objects.filter(
         device=device,
         alert_type=DEVICE_CONNECTION_LOSS_ALERT_TYPE,
         resolved=False,
-    ).update(resolved=True, last_updated=seen_at)
-
-    alert, email_result = _create_connection_log_and_alert(
-        device,
-        DEVICE_CONNECTION_RESTORED_ALERT_TYPE,
-        DEVICE_CONNECTION_RESTORED_LOG_TYPE,
-        seen_at,
-        payload,
-        resolved=True,
     )
-    return alert, True, email_result
+    resolved_connection_alert = active_connection_alerts.order_by('-last_updated', '-id').first()
+    email_result = None
+    for alert in active_connection_alerts:
+        result = _resolve_alert(
+            alert,
+            seen_at,
+            payload=payload,
+            reason='device_connection_restored',
+            send_email=alert.id == getattr(resolved_connection_alert, 'id', None),
+        )
+        if result is not None:
+            email_result = result
+
+    try:
+        _ingest_log_projection(
+            device=device,
+            log_type=DEVICE_CONNECTION_RESTORED_LOG_TYPE,
+            payload=payload,
+            log_timestamp=seen_at,
+            source='server',
+        )
+    except Exception:
+        logger.exception('Failed to create %s log', DEVICE_CONNECTION_RESTORED_LOG_TYPE)
+
+    if resolved_connection_alert is not None:
+        return resolved_connection_alert, True, email_result
+    if shutdown_resolutions:
+        alert, shutdown_email = shutdown_resolutions[0]
+        return alert, True, shutdown_email
+    return None, True, None
 
 
 def _ingest_log_projection(device, log_type, payload, log_timestamp, *, event_id=None, boot_id='', sequence=None, source='esp32', delivery_status='accepted'):
@@ -1159,15 +1213,18 @@ def _get_effective_config_last_updated(device, cfg):
 
 
 def _serialize_feed_now_command(command):
+    def local_iso(value):
+        return timezone.localtime(value).isoformat() if value else None
+
     return {
         'id': command.id,
         'device': command.device_id,
         'amount_kg': command.amount_kg,
         'status': command.status,
-        'created_at': command.created_at.isoformat(),
-        'updated_at': command.updated_at.isoformat(),
+        'created_at': local_iso(command.created_at),
+        'updated_at': local_iso(command.updated_at),
         'requested_by': command.requested_by,
-        'executed_at': command.executed_at.isoformat() if command.executed_at else None,
+        'executed_at': local_iso(command.executed_at),
         'failure_reason': command.failure_reason,
     }
 
@@ -1392,7 +1449,7 @@ def _send_alert_notification(alert, is_refresh):
     except ValidationError:
         return {'ok': False, 'detail': 'Invalid recipient email in user records'}
 
-    event_label = 'updated' if is_refresh else 'triggered'
+    event_label = 'updated' if is_refresh else ('resolved' if alert.resolved else 'triggered')
     subject = f"[StockLink Alert] {alert.alert_type} {event_label} on {alert.device.device_id}"
     message = (
         f"Device: {alert.device.device_id}\n"
@@ -1401,7 +1458,147 @@ def _send_alert_notification(alert, is_refresh):
         f"Occurrences: {alert.refresh_count}\n"
         f"Event time: {timezone.localtime(alert.timestamp).isoformat()}"
     )
+    if isinstance(alert.payload, dict) and alert.payload:
+        message += f"\n\nDetails:\n{json.dumps(alert.payload, indent=2, sort_keys=True)}"
     return _send_notification_email(subject, message, recipients)
+
+
+def _update_level_alert_state(
+    *,
+    device,
+    level_pct,
+    low_threshold_pct,
+    recovery_threshold_pct,
+    low_alert_type,
+    critical_alert_type,
+    resource_name,
+    now_ts,
+):
+    result = {
+        'triggered_low': False,
+        'refreshed_low': False,
+        'triggered_critical': False,
+        'refreshed_critical': False,
+        'promoted_to_critical': False,
+        'demoted_to_low': False,
+        'resolved': 0,
+    }
+
+    def alert_payload(state, transition):
+        return {
+            'event': state,
+            'resource': resource_name,
+            'level_pct': level_pct,
+            'low_threshold_pct': low_threshold_pct,
+            'critical_threshold_pct': CRITICAL_LEVEL_THRESHOLD_PCT,
+            'critical_recovery_pct': CRITICAL_LEVEL_RECOVERY_PCT,
+            'recovery_threshold_pct': recovery_threshold_pct,
+            'transition': transition,
+        }
+
+    active_low = Alert.objects.filter(
+        device=device,
+        alert_type=low_alert_type,
+        resolved=False,
+    ).order_by('-last_updated', '-id').first()
+    active_critical = Alert.objects.filter(
+        device=device,
+        alert_type=critical_alert_type,
+        resolved=False,
+    ).order_by('-last_updated', '-id').first()
+
+    if level_pct <= CRITICAL_LEVEL_THRESHOLD_PCT:
+        if active_critical is not None:
+            active_critical.refresh_count += 1
+            active_critical.payload = alert_payload(critical_alert_type, 'critical_refreshed')
+            active_critical.save(update_fields=['refresh_count', 'payload', 'last_updated'])
+            result['refreshed_critical'] = True
+        elif active_low is not None:
+            active_low.alert_type = critical_alert_type
+            active_low.refresh_count += 1
+            active_low.payload = alert_payload(critical_alert_type, 'promoted_from_low')
+            active_low.save(update_fields=['alert_type', 'refresh_count', 'payload', 'last_updated'])
+            _send_alert_notification(active_low, is_refresh=False)
+            active_critical = active_low
+            result['triggered_critical'] = True
+            result['promoted_to_critical'] = True
+        else:
+            active_critical = Alert.objects.create(
+                device=device,
+                alert_type=critical_alert_type,
+                timestamp=now_ts,
+                payload=alert_payload(critical_alert_type, 'critical_triggered'),
+            )
+            _send_alert_notification(active_critical, is_refresh=False)
+            result['triggered_critical'] = True
+
+        Alert.objects.filter(
+            device=device,
+            alert_type=low_alert_type,
+            resolved=False,
+        ).update(resolved=True, resolved_at=now_ts, last_updated=now_ts)
+        Alert.objects.filter(
+            device=device,
+            alert_type=critical_alert_type,
+            resolved=False,
+        ).exclude(id=active_critical.id).update(resolved=True, resolved_at=now_ts, last_updated=now_ts)
+        return result
+
+    if active_critical is not None and level_pct < CRITICAL_LEVEL_RECOVERY_PCT:
+        active_critical.refresh_count += 1
+        active_critical.payload = alert_payload(critical_alert_type, 'critical_refreshed')
+        active_critical.save(update_fields=['refresh_count', 'payload', 'last_updated'])
+        result['refreshed_critical'] = True
+        Alert.objects.filter(
+            device=device,
+            alert_type=low_alert_type,
+            resolved=False,
+        ).update(resolved=True, resolved_at=now_ts, last_updated=now_ts)
+        return result
+
+    if active_critical is not None:
+        Alert.objects.filter(
+            device=device,
+            alert_type=low_alert_type,
+            resolved=False,
+        ).update(resolved=True, resolved_at=now_ts, last_updated=now_ts)
+        Alert.objects.filter(
+            device=device,
+            alert_type=critical_alert_type,
+            resolved=False,
+        ).exclude(id=active_critical.id).update(resolved=True, resolved_at=now_ts, last_updated=now_ts)
+        active_critical.alert_type = low_alert_type
+        active_critical.refresh_count += 1
+        active_critical.payload = alert_payload(low_alert_type, 'demoted_from_critical')
+        active_critical.save(update_fields=['alert_type', 'refresh_count', 'payload', 'last_updated'])
+        active_low = active_critical
+        result['demoted_to_low'] = True
+
+    if level_pct <= low_threshold_pct:
+        if active_low is not None:
+            if not result['demoted_to_low']:
+                active_low.refresh_count += 1
+                active_low.payload = alert_payload(low_alert_type, 'low_refreshed')
+                active_low.save(update_fields=['refresh_count', 'payload', 'last_updated'])
+            result['refreshed_low'] = True
+        else:
+            active_low = Alert.objects.create(
+                device=device,
+                alert_type=low_alert_type,
+                timestamp=now_ts,
+                payload=alert_payload(low_alert_type, 'low_triggered'),
+            )
+            _send_alert_notification(active_low, is_refresh=False)
+            result['triggered_low'] = True
+
+    if level_pct >= recovery_threshold_pct:
+        result['resolved'] = Alert.objects.filter(
+            device=device,
+            alert_type__in=[low_alert_type, critical_alert_type],
+            resolved=False,
+        ).update(resolved=True, resolved_at=now_ts, last_updated=now_ts)
+
+    return result
 
 
 def _send_important_log_notification(device, log_type, payload, log_timestamp, refresh_count):
@@ -2533,7 +2730,6 @@ class AlertsView(APIView):
         if not (request.user and request.user.is_authenticated):
             return Response({'detail': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
         device = get_object_or_404(Device, device_id=device_id)
-        _resolve_stale_shutdown_alerts(device=device)
         alerts = Alert.objects.filter(device=device).order_by('-last_updated', '-id')[:200]
         serializer = AlertSerializer(alerts, many=True)
         return Response(serializer.data)
@@ -2569,9 +2765,8 @@ class AlertsView(APIView):
                         status=status.HTTP_200_OK,
                     )
 
-                existing_outage.timestamp = now_ts
                 existing_outage.refresh_count += 1
-                existing_outage.save(update_fields=['timestamp', 'refresh_count', 'last_updated'])
+                existing_outage.save(update_fields=['refresh_count', 'last_updated'])
                 # Also update or create a corresponding log entry for power outage
                 try:
                     existing_log = Log.objects.filter(device=device, log_type='power_outage').order_by('-id').first()
@@ -2659,18 +2854,12 @@ class AlertsView(APIView):
                 resolved=False,
             ).order_by('-last_updated', '-id').first()
 
-            if active_alert:
-                active_alert.resolved = True
-                active_alert.payload = dict(active_alert.payload or {})
-                active_alert.payload.update(payload)
-                active_alert.save(update_fields=['resolved', 'payload', 'last_updated'])
-
-            resolved_alert = Alert.objects.create(
-                device=device,
-                alert_type=LOW_BATTERY_SHUTDOWN_RESOLVED_ALERT_TYPE,
-                timestamp=now_ts,
-                resolved=True,
+            email_result = _resolve_alert(
+                active_alert,
+                now_ts,
                 payload=payload,
+                reason='device_reported_recovery',
+                send_email=True,
             )
             try:
                 _ingest_log_projection(
@@ -2684,78 +2873,73 @@ class AlertsView(APIView):
                 logger.exception('Failed to create low battery shutdown resolved log')
             return Response(
                 {
-                    'id': resolved_alert.id,
+                    'id': active_alert.id if active_alert else None,
                     'refreshed': False,
-                    'deduped': False,
+                    'deduped': active_alert is None,
                     'resolved_shutdown_alerts': 1 if active_alert else 0,
-                    'email': None,
+                    'email': email_result,
                 },
-                status=status.HTTP_201_CREATED,
+                status=status.HTTP_200_OK,
             )
 
         if alert_type == 'power_restored':
-            existing_restored = Alert.objects.filter(
-                device=device,
-                alert_type='power_restored',
-            ).order_by('-last_updated', '-id').first()
-
-            if existing_restored:
-                age_seconds = (now_ts - existing_restored.last_updated).total_seconds()
-                if age_seconds <= POWER_ALERT_DEDUP_SECONDS:
-                    resolved_count = Alert.objects.filter(
-                        device=device,
-                        alert_type='power_outage',
-                        resolved=False,
-                    ).update(resolved=True, last_updated=now_ts)
-                    return Response(
-                        {
-                            'id': existing_restored.id,
-                            'refreshed': True,
-                            'deduped': True,
-                            'resolved_outage_alerts': resolved_count,
-                            'detail': 'Duplicate power_restored ignored within debounce window',
-                            'email': None,
-                        },
-                        status=status.HTTP_200_OK,
-                    )
-
-            resolved_count = Alert.objects.filter(
+            active_outage = Alert.objects.filter(
                 device=device,
                 alert_type='power_outage',
                 resolved=False,
-            ).update(resolved=True, last_updated=now_ts)
+            ).order_by('-last_updated', '-id').first()
 
-            if existing_restored:
-                existing_restored.timestamp = now_ts
-                existing_restored.refresh_count += 1
-                existing_restored.resolved = True
-                existing_restored.save(update_fields=['timestamp', 'refresh_count', 'resolved', 'last_updated'])
+            if active_outage is None:
+                latest_outage = Alert.objects.filter(
+                    device=device,
+                    alert_type='power_outage',
+                ).order_by('-last_updated', '-id').first()
                 return Response(
                     {
-                        'id': existing_restored.id,
-                        'refreshed': True,
-                        'deduped': False,
-                        'resolved_outage_alerts': resolved_count,
+                        'id': latest_outage.id if latest_outage else None,
+                        'refreshed': False,
+                        'deduped': True,
+                        'resolved_outage_alerts': 0,
+                        'detail': 'No active power outage to resolve',
                         'email': None,
                     },
                     status=status.HTTP_200_OK,
                 )
 
-            restored = Alert.objects.create(
-                device=device,
-                alert_type='power_restored',
-                timestamp=now_ts,
-                resolved=True,
+            restored_payload = request.data.get('payload', {})
+            if not isinstance(restored_payload, dict):
+                restored_payload = {}
+            restored_payload = dict(restored_payload)
+            restored_payload.update({
+                'event': 'power_restored',
+                'restored_at': now_ts.isoformat(),
+            })
+            if active_outage is not None:
+                restored_payload.update({
+                    'outage_started_at': active_outage.timestamp.isoformat(),
+                    'outage_duration_seconds': max(
+                        0,
+                        int((now_ts - active_outage.timestamp).total_seconds()),
+                    ),
+                })
+
+            restored_payload['resolved_outage_alerts'] = 1
+            email_result = _resolve_alert(
+                active_outage,
+                now_ts,
+                payload=restored_payload,
+                reason='power_restored',
+                send_email=True,
             )
             return Response(
                 {
-                    'id': restored.id,
+                    'id': active_outage.id,
                     'refreshed': False,
                     'deduped': False,
-                    'resolved_outage_alerts': resolved_count,
-                    'email': None,
+                    'resolved_outage_alerts': 1,
+                    'email': email_result,
                 },
-                status=status.HTTP_201_CREATED,
+                status=status.HTTP_200_OK,
             )
         
         # Check if an unresolved alert of this type already exists for this device
@@ -2884,72 +3068,50 @@ class SensorStateView(APIView):
         water_low_threshold = float(alert_thresholds.get('alert_water_low_threshold_pct', 20.0))
         water_recovery_threshold = float(alert_thresholds.get('alert_water_high_threshold_pct', 80.0))
 
-        triggered_low_feed_alert = False
-        refreshed_low_feed_alert = False
-        triggered_low_water_alert = False
-        refreshed_low_water_alert = False
-        resolved_low_feed_alerts = 0
-        resolved_low_water_alerts = 0
-
-        if feeder_level <= feeder_low_threshold:
-            existing_low_feed = Alert.objects.filter(
-                device=device,
-                alert_type='low_feed',
-                resolved=False,
-            ).order_by('-last_updated', '-id').first()
-            if existing_low_feed:
-                existing_low_feed.timestamp = timezone.now()
-                existing_low_feed.refresh_count += 1
-                existing_low_feed.save(update_fields=['timestamp', 'refresh_count', 'last_updated'])
-                refreshed_low_feed_alert = True
-            else:
-                new_low_feed_alert = Alert.objects.create(device=device, alert_type='low_feed', timestamp=timezone.now())
-                _send_alert_notification(new_low_feed_alert, is_refresh=False)
-                triggered_low_feed_alert = True
-
-        if feeder_level >= feeder_recovery_threshold:
-            resolved_low_feed_alerts = Alert.objects.filter(
-                device=device,
-                alert_type='low_feed',
-                resolved=False,
-            ).update(resolved=True, last_updated=timezone.now())
-
-        if water_level <= water_low_threshold:
-            existing_low_water = Alert.objects.filter(
-                device=device,
-                alert_type='low_water',
-                resolved=False,
-            ).order_by('-last_updated', '-id').first()
-            if existing_low_water:
-                existing_low_water.timestamp = timezone.now()
-                existing_low_water.refresh_count += 1
-                existing_low_water.save(update_fields=['timestamp', 'refresh_count', 'last_updated'])
-                refreshed_low_water_alert = True
-            else:
-                new_low_water_alert = Alert.objects.create(device=device, alert_type='low_water', timestamp=timezone.now())
-                _send_alert_notification(new_low_water_alert, is_refresh=False)
-                triggered_low_water_alert = True
-
-        if water_level >= water_recovery_threshold:
-            resolved_low_water_alerts = Alert.objects.filter(
-                device=device,
-                alert_type='low_water',
-                resolved=False,
-            ).update(resolved=True, last_updated=timezone.now())
+        feed_alert_state = _update_level_alert_state(
+            device=device,
+            level_pct=feeder_level,
+            low_threshold_pct=feeder_low_threshold,
+            recovery_threshold_pct=feeder_recovery_threshold,
+            low_alert_type='low_feed',
+            critical_alert_type='critical_low_feed',
+            resource_name='feed',
+            now_ts=received_at,
+        )
+        water_alert_state = _update_level_alert_state(
+            device=device,
+            level_pct=water_level,
+            low_threshold_pct=water_low_threshold,
+            recovery_threshold_pct=water_recovery_threshold,
+            low_alert_type='low_water',
+            critical_alert_type='critical_low_water',
+            resource_name='water',
+            now_ts=received_at,
+        )
 
         serializer = DeviceSensorStateSerializer(sensor_state)
         response_data = serializer.data
         response_data['status'] = 'updated'
-        response_data['triggered_low_feed_alert'] = triggered_low_feed_alert
-        response_data['refreshed_low_feed_alert'] = refreshed_low_feed_alert
-        response_data['low_feed_alerts_auto_resolved'] = resolved_low_feed_alerts
-        response_data['triggered_low_water_alert'] = triggered_low_water_alert
-        response_data['refreshed_low_water_alert'] = refreshed_low_water_alert
-        response_data['low_water_alerts_auto_resolved'] = resolved_low_water_alerts
+        response_data['triggered_low_feed_alert'] = feed_alert_state['triggered_low']
+        response_data['refreshed_low_feed_alert'] = feed_alert_state['refreshed_low']
+        response_data['triggered_critical_feed_alert'] = feed_alert_state['triggered_critical']
+        response_data['refreshed_critical_feed_alert'] = feed_alert_state['refreshed_critical']
+        response_data['promoted_low_feed_to_critical'] = feed_alert_state['promoted_to_critical']
+        response_data['demoted_critical_feed_to_low'] = feed_alert_state['demoted_to_low']
+        response_data['low_feed_alerts_auto_resolved'] = feed_alert_state['resolved']
+        response_data['triggered_low_water_alert'] = water_alert_state['triggered_low']
+        response_data['refreshed_low_water_alert'] = water_alert_state['refreshed_low']
+        response_data['triggered_critical_water_alert'] = water_alert_state['triggered_critical']
+        response_data['refreshed_critical_water_alert'] = water_alert_state['refreshed_critical']
+        response_data['promoted_low_water_to_critical'] = water_alert_state['promoted_to_critical']
+        response_data['demoted_critical_water_to_low'] = water_alert_state['demoted_to_low']
+        response_data['low_water_alerts_auto_resolved'] = water_alert_state['resolved']
         response_data['alert_feeder_low_threshold_pct'] = feeder_low_threshold
         response_data['alert_feeder_recovery_threshold_pct'] = feeder_recovery_threshold
         response_data['alert_water_low_threshold_pct'] = water_low_threshold
         response_data['alert_water_recovery_threshold_pct'] = water_recovery_threshold
+        response_data['critical_level_threshold_pct'] = CRITICAL_LEVEL_THRESHOLD_PCT
+        response_data['critical_level_recovery_pct'] = CRITICAL_LEVEL_RECOVERY_PCT
         response_data['event_id'] = event.event_id
         return Response(response_data, status=status.HTTP_200_OK)
 

@@ -26,7 +26,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
 class AlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = Alert
-        fields = ['id', 'device', 'alert_type', 'timestamp', 'last_updated', 'refresh_count', 'resolved', 'payload']
+        fields = ['id', 'device', 'alert_type', 'timestamp', 'resolved_at', 'last_updated', 'refresh_count', 'resolved', 'payload']
 
 class LogSerializer(serializers.ModelSerializer):
     class Meta:
