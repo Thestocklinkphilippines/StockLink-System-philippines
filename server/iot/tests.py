@@ -532,6 +532,124 @@ class OfflineReplayIngestTests(TestCase):
         cfg.refresh_from_db()
         self.assertNotIn('feed_now_command', cfg.config)
 
+    def test_delayed_executed_ack_repairs_device_watermark_failure(self):
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.25)
+        DeviceConfig.objects.create(
+            device=self.device,
+            config={'last_feed_now_command_id': command.id},
+        )
+
+        config_response = self.client.get(
+            f'/api/device/{self.device.device_id}/config/',
+            **self.auth_headers,
+        )
+        self.assertEqual(config_response.status_code, 200)
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_FAILED)
+        self.assertIn('watermark advanced', command.failure_reason)
+
+        ack_response = self._post_json(
+            f'/api/device/{self.device.device_id}/feed-now/{command.id}/ack/',
+            {'status': 'executed', 'reason': 'ok', 'event_id': 'delayed-watermark-ack-1'},
+        )
+
+        self.assertEqual(ack_response.status_code, 200)
+        self.assertTrue(ack_response.json()['updated'])
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_EXECUTED)
+        self.assertEqual(command.failure_reason, '')
+
+    def test_delayed_feeding_log_repairs_device_watermark_failure(self):
+        command = FeedNowCommand.objects.create(device=self.device, amount_kg=0.5)
+        DeviceConfig.objects.create(
+            device=self.device,
+            config={'last_feed_now_command_id': command.id},
+        )
+
+        config_response = self.client.get(
+            f'/api/device/{self.device.device_id}/config/',
+            **self.auth_headers,
+        )
+        self.assertEqual(config_response.status_code, 200)
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_FAILED)
+
+        log_response = self._post_json(
+            f'/api/device/{self.device.device_id}/logs/',
+            {
+                'log_type': 'feeding',
+                'timestamp': '2026-06-10T23:19:45Z',
+                'event_id': 'delayed-watermark-feeding-1',
+                'payload': {
+                    'amount_kg': 0.5,
+                    'remaining_kg': 3.18,
+                    'trigger': 'feed_now',
+                    'command_id': command.id,
+                    'status': 'executed',
+                    'phase': 'completed',
+                },
+            },
+        )
+
+        self.assertEqual(log_response.status_code, 201)
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_EXECUTED)
+        self.assertEqual(command.failure_reason, '')
+
+    def test_feed_now_list_repairs_existing_watermark_failure_from_stored_log(self):
+        command = FeedNowCommand.objects.create(
+            device=self.device,
+            amount_kg=0.5,
+            status=FeedNowCommand.STATUS_FAILED,
+            executed_at=timezone.now(),
+            failure_reason=f'Device watermark advanced to command 165 without an acknowledgement.',
+        )
+        Log.objects.create(
+            device=self.device,
+            log_type='feeding',
+            log_category='feeding',
+            timestamp=timezone.now(),
+            payload={
+                'amount_kg': 0.5,
+                'remaining_kg': 3.18,
+                'trigger': 'feed_now',
+                'command_id': command.id,
+                'status': 'executed',
+                'phase': 'completed',
+            },
+        )
+        user = User.objects.create_user(username='watermark-repair-reader', password='pass12345')
+        client = Client()
+        client.force_login(user)
+
+        list_response = client.get(f'/api/device/{self.device.device_id}/feed-now/')
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()[0]['status'], FeedNowCommand.STATUS_EXECUTED)
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_EXECUTED)
+        self.assertEqual(command.failure_reason, '')
+
+    def test_delayed_executed_ack_does_not_replace_genuine_device_failure(self):
+        command = FeedNowCommand.objects.create(
+            device=self.device,
+            amount_kg=0.5,
+            status=FeedNowCommand.STATUS_FAILED,
+            executed_at=timezone.now(),
+            failure_reason='insufficient_feed',
+        )
+
+        ack_response = self._post_json(
+            f'/api/device/{self.device.device_id}/feed-now/{command.id}/ack/',
+            {'status': 'executed', 'reason': 'ok', 'event_id': 'late-after-real-failure-1'},
+        )
+
+        self.assertEqual(ack_response.status_code, 200)
+        self.assertFalse(ack_response.json()['updated'])
+        command.refresh_from_db()
+        self.assertEqual(command.status, FeedNowCommand.STATUS_FAILED)
+        self.assertEqual(command.failure_reason, 'insufficient_feed')
+
     def test_non_staff_user_can_queue_feed_now_command(self):
         user = User.objects.create_user(username='regular-feed-now', password='pass12345')
         UserApproval.objects.create(user=user, is_approved=True)

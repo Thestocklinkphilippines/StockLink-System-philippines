@@ -48,6 +48,7 @@ LOW_BATTERY_SHUTDOWN_LOG_TYPE = 'shutdown'
 LOW_BATTERY_SHUTDOWN_RESOLVE_AFTER_SECONDS = 5
 CRITICAL_LEVEL_THRESHOLD_PCT = 0.0
 CRITICAL_LEVEL_RECOVERY_PCT = 1.0
+FEED_NOW_WATERMARK_FAILURE_PREFIX = 'Device watermark advanced to command '
 EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60
 
 
@@ -1017,14 +1018,13 @@ def _ingest_log_projection(device, log_type, payload, log_timestamp, *, event_id
             command = FeedNowCommand.objects.get(device=device, id=cmd_id_int)
         except FeedNowCommand.DoesNotExist:
             command = None
-        if command is not None and command.status == FeedNowCommand.STATUS_PENDING:
-            command.status = resolved_status
-            command.executed_at = _normalize_dt(log_timestamp) or timezone.now()
-            if resolved_status == FeedNowCommand.STATUS_FAILED:
-                command.failure_reason = (status_hint or 'feeding log reported failure')[:255]
-            else:
-                command.failure_reason = ''
-            command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
+        if command is not None:
+            _apply_feed_now_resolution(
+                command,
+                resolved_status,
+                executed_at=log_timestamp,
+                failure_reason=status_hint or 'feeding log reported failure',
+            )
 
     # If this is a 'feed_now' acknowledgement and there's an existing 'feeding' physical record,
     # merge the data into a canonical 'feed_now' record (create or update) so the UI shows a single row.
@@ -1176,15 +1176,16 @@ def _ack_feed_now_command(device, command_id, status_value, reason=None, *, even
 
     command = get_object_or_404(FeedNowCommand, id=command_id, device=device)
 
-    if command.status != FeedNowCommand.STATUS_PENDING:
+    if not _can_reconcile_feed_now_command(command):
         return event, command, True, False
 
-    command.status = status_value
-    command.executed_at = timezone.now()
-    if status_value == FeedNowCommand.STATUS_FAILED:
-        command.failure_reason = (reason or '')[:255]
-    command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
-    return event, command, False, True
+    updated = _apply_feed_now_resolution(
+        command,
+        status_value,
+        executed_at=timezone.now(),
+        failure_reason=reason,
+    )
+    return event, command, not created, updated
 
 
 def _get_effective_config_last_updated(device, cfg):
@@ -1229,8 +1230,33 @@ def _serialize_feed_now_command(command):
     }
 
 
+def _is_feed_now_watermark_failure(command):
+    return (
+        command.status == FeedNowCommand.STATUS_FAILED
+        and str(command.failure_reason or '').startswith(FEED_NOW_WATERMARK_FAILURE_PREFIX)
+    )
+
+
+def _can_reconcile_feed_now_command(command):
+    return command.status == FeedNowCommand.STATUS_PENDING or _is_feed_now_watermark_failure(command)
+
+
+def _apply_feed_now_resolution(command, status_value, *, executed_at=None, failure_reason=None):
+    if not _can_reconcile_feed_now_command(command):
+        return False
+
+    command.status = status_value
+    command.executed_at = _normalize_dt(executed_at) or timezone.now()
+    if status_value == FeedNowCommand.STATUS_FAILED:
+        command.failure_reason = (failure_reason or '')[:255]
+    else:
+        command.failure_reason = ''
+    command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
+    return True
+
+
 def _reconcile_feed_now_command_from_logs(command):
-    if command.status != FeedNowCommand.STATUS_PENDING:
+    if not _can_reconcile_feed_now_command(command):
         return command, False
 
     matching_logs = (
@@ -1267,14 +1293,13 @@ def _reconcile_feed_now_command_from_logs(command):
         ).strip().lower()
         resolved_status = FeedNowCommand.STATUS_FAILED if status_hint in {'failed', 'fail', 'error', 'timeout', 'cancelled', 'canceled'} else FeedNowCommand.STATUS_EXECUTED
 
-        command.status = resolved_status
-        command.executed_at = _normalize_dt(log.timestamp) or timezone.now()
-        if resolved_status == FeedNowCommand.STATUS_FAILED:
-            command.failure_reason = (status_hint or 'feeding log reported failure')[:255]
-        else:
-            command.failure_reason = ''
-        command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
-        return command, True
+        updated = _apply_feed_now_resolution(
+            command,
+            resolved_status,
+            executed_at=log.timestamp,
+            failure_reason=status_hint or 'feeding log reported failure',
+        )
+        return command, updated
 
     return command, False
 
@@ -1322,7 +1347,7 @@ def _reconcile_feed_now_commands_from_device_watermark(device, config):
         command.status = FeedNowCommand.STATUS_FAILED
         command.executed_at = timezone.now()
         command.failure_reason = (
-            f'Device watermark advanced to command {last_handled_id} without an acknowledgement.'
+            f'{FEED_NOW_WATERMARK_FAILURE_PREFIX}{last_handled_id} without an acknowledgement.'
         )[:255]
         command.save(update_fields=['status', 'executed_at', 'failure_reason', 'updated_at'])
         reconciled_count += 1
