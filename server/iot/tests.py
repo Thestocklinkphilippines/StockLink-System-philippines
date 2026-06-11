@@ -976,6 +976,7 @@ class OfflineReplayIngestTests(TestCase):
             config={
                 'water_tank_full_cm': '12.5',
                 'water_tank_depth_cm': '34.75',
+                'keypad_calibration': {'adc_1': 919},
                 'legacy_mode': True,
             },
         )
@@ -983,6 +984,7 @@ class OfflineReplayIngestTests(TestCase):
         cfg.refresh_from_db()
         self.assertEqual(cfg.config['water_tank_full_cm'], 12.5)
         self.assertNotIn('water_tank_depth_cm', cfg.config)
+        self.assertNotIn('keypad_calibration', cfg.config)
         self.assertTrue(cfg.config['legacy_mode'])
 
     def test_device_post_drops_deprecated_water_tank_depth_field(self):
@@ -994,6 +996,7 @@ class OfflineReplayIngestTests(TestCase):
                     'config': {
                         'water_tank_full_cm': '13.25',
                         'water_tank_depth_cm': '39.5',
+                        'keypad_calibration': {'adc_1': 919},
                         'legacy_mode': True,
                     },
                     'last_updated': newer_ts,
@@ -1007,9 +1010,11 @@ class OfflineReplayIngestTests(TestCase):
         cfg = DeviceConfig.objects.get(device=self.device)
         self.assertEqual(cfg.config['water_tank_full_cm'], 13.25)
         self.assertNotIn('water_tank_depth_cm', cfg.config)
+        self.assertNotIn('keypad_calibration', cfg.config)
         self.assertTrue(cfg.config['legacy_mode'])
         self.assertEqual(response.json()['config']['water_tank_full_cm'], 13.25)
         self.assertNotIn('water_tank_depth_cm', response.json()['config'])
+        self.assertNotIn('keypad_calibration', response.json()['config'])
 
     def test_system_settings_exposes_battery_shutdown_voltage(self):
         user = User.objects.create_user(username='admin2', password='pass12345')

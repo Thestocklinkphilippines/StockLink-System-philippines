@@ -151,6 +151,7 @@ DEPRECATED_DEVICE_CONFIG_FIELDS = (
     'feeder_tank_bottom_distance_cm',
     'feeder_tank_depth_cm',
     'feeder_tank_full_distance_cm',
+    'keypad_calibration',
     'water_tank_depth_cm',
 )
 
