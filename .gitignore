@@ -14,3 +14,4 @@ IOTFirmwaremk1/
 AItestFiels/
 .vscode/
 
+server/db.sqlite3
