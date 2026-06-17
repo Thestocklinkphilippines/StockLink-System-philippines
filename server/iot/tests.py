@@ -209,6 +209,7 @@ class OfflineReplayIngestTests(TestCase):
                     'source': 'esp32',
                     'feeder_level_pct': 88.0,
                     'water_level_pct': 91.0,
+                    'water_current_liters': 4.52,
                     'battery_voltage_v': 3.78,
                     'feed_sufficient': True,
                     'feed_current_kg': 6.5,
@@ -229,6 +230,7 @@ class OfflineReplayIngestTests(TestCase):
         sensor_state = DeviceSensorState.objects.get(device=self.device)
         self.assertEqual(sensor_state.feeder_level_pct, 88.0)
         self.assertEqual(sensor_state.water_level_pct, 91.0)
+        self.assertEqual(sensor_state.water_current_liters, 4.52)
         self.assertEqual(sensor_state.battery_voltage_v, 3.78)
         self.assertTrue(sensor_state.feed_sufficient)
         self.assertEqual(sensor_state.feed_current_kg, 6.5)
@@ -238,6 +240,7 @@ class OfflineReplayIngestTests(TestCase):
         payload = {
             'feeder_level_pct': 74.0,
             'water_level_pct': 81.0,
+            'water_current_liters': 3.875,
             'battery_voltage_v': 3.77,
             'feed_sufficient': False,
             'feed_current_kg': 0.4,
@@ -251,14 +254,29 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body['status'], 'updated')
+        self.assertEqual(body['water_current_liters'], 3.875)
         self.assertEqual(body['feed_sufficient'], False)
         self.assertEqual(body['feed_current_kg'], 0.4)
         self.assertEqual(body['feed_required_next_kg'], 1.0)
 
         sensor_state = DeviceSensorState.objects.get(device=self.device)
+        self.assertEqual(sensor_state.water_current_liters, 3.875)
         self.assertFalse(sensor_state.feed_sufficient)
         self.assertEqual(sensor_state.feed_current_kg, 0.4)
         self.assertEqual(sensor_state.feed_required_next_kg, 1.0)
+
+    def test_sensor_state_post_rejects_invalid_water_liters(self):
+        payload = {
+            'feeder_level_pct': 74.0,
+            'water_level_pct': 81.0,
+            'water_current_liters': 'not-a-number',
+            'event_id': 'sensor-invalid-water-liters-1',
+        }
+
+        response = self._post_json('/api/device/esp32-001/sensor-state/', payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['detail'], 'water_current_liters must be numeric')
 
     def test_sensor_state_derives_feed_sufficiency_when_omitted(self):
         settings_obj = SystemSettings.get_solo()
@@ -295,6 +313,7 @@ class OfflineReplayIngestTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
+        self.assertIsNone(body.get('water_current_liters'))
         self.assertTrue(body['feed_sufficient'])
         self.assertAlmostEqual(body['feed_current_kg'], 1.7421979905)
         self.assertAlmostEqual(body['feed_required_next_kg'], 0.2)

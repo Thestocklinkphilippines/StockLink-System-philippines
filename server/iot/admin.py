@@ -337,6 +337,6 @@ class SystemSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(DeviceSensorState)
 class DeviceSensorStateAdmin(admin.ModelAdmin):
-    list_display = ('device', 'feeder_level_pct', 'water_level_pct', 'last_reported_at', 'updated_at')
+    list_display = ('device', 'feeder_level_pct', 'water_level_pct', 'water_current_liters', 'last_reported_at', 'updated_at')
     readonly_fields = ('updated_at',)
     search_fields = ('device__device_id',)

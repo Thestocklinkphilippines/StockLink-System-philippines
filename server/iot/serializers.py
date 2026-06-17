@@ -201,6 +201,7 @@ class DeviceSensorStateSerializer(serializers.ModelSerializer):
         fields = [
             'feeder_level_pct',
             'water_level_pct',
+            'water_current_liters',
             'battery_voltage_v',
             'feed_sufficient',
             'feed_current_kg',

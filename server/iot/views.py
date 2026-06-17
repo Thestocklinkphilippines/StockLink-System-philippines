@@ -350,6 +350,7 @@ def _get_device_sensor_state(device):
         return {
             'feeder_level_pct': sensor.feeder_level_pct,
             'water_level_pct': sensor.water_level_pct,
+            'water_current_liters': sensor.water_current_liters,
             'battery_voltage_v': sensor.battery_voltage_v,
             'feed_sufficient': sensor.feed_sufficient,
             'feed_current_kg': sensor.feed_current_kg,
@@ -360,6 +361,7 @@ def _get_device_sensor_state(device):
         return {
             'feeder_level_pct': 100.0,
             'water_level_pct': 100.0,
+            'water_current_liters': None,
             'battery_voltage_v': None,
             'feed_sufficient': None,
             'feed_current_kg': None,
@@ -1082,6 +1084,7 @@ def _ingest_sensor_projection(
     timestamp,
     *,
     battery_voltage=None,
+    water_current_liters=None,
     feed_sufficient=None,
     feed_current_kg=None,
     feed_required_next_kg=None,
@@ -1106,6 +1109,8 @@ def _ingest_sensor_projection(
     }
     if battery_voltage is not None:
         payload['battery_voltage_v'] = battery_voltage
+    if water_current_liters is not None:
+        payload['water_current_liters'] = water_current_liters
     if feed_sufficient is not None:
         payload['feed_sufficient'] = feed_sufficient
     if feed_current_kg is not None:
@@ -1133,6 +1138,11 @@ def _ingest_sensor_projection(
     sensor_state, _ = DeviceSensorState.objects.get_or_create(device=device)
     sensor_state.feeder_level_pct = feeder_level
     sensor_state.water_level_pct = water_level
+    if water_current_liters is not None:
+        try:
+            sensor_state.water_current_liters = float(water_current_liters)
+        except (TypeError, ValueError):
+            pass
     if battery_voltage is not None:
         try:
             sensor_state.battery_voltage_v = float(battery_voltage)
@@ -3042,10 +3052,16 @@ class SensorStateView(APIView):
 
         # Optional battery fields
         battery_voltage = request.data.get('battery_voltage_v')
+        water_current_liters = request.data.get('water_current_liters')
         feed_sufficient = _coerce_optional_bool(request.data.get('feed_sufficient'))
         feed_current_kg = request.data.get('feed_current_kg')
         feed_required_next_kg = request.data.get('feed_required_next_kg')
 
+        if water_current_liters is not None:
+            try:
+                water_current_liters = float(water_current_liters)
+            except (TypeError, ValueError):
+                return Response({'detail': 'water_current_liters must be numeric'}, status=status.HTTP_400_BAD_REQUEST)
         if feed_current_kg is not None:
             try:
                 feed_current_kg = float(feed_current_kg)
@@ -3070,6 +3086,7 @@ class SensorStateView(APIView):
             water_level=water_level,
             timestamp=reported_at or received_at,
             battery_voltage=battery_voltage,
+            water_current_liters=water_current_liters,
             feed_sufficient=feed_sufficient,
             feed_current_kg=feed_current_kg,
             feed_required_next_kg=feed_required_next_kg,
@@ -3309,12 +3326,20 @@ class DeviceEventIngestView(APIView):
                 except (TypeError, ValueError):
                     results.append({'index': index, 'accepted': False, 'detail': 'Sensor values must be numeric'})
                     continue
+                water_current_liters = item.get('water_current_liters', payload.get('water_current_liters'))
+                if water_current_liters is not None:
+                    try:
+                        water_current_liters = float(water_current_liters)
+                    except (TypeError, ValueError):
+                        results.append({'index': index, 'accepted': False, 'detail': 'water_current_liters must be numeric'})
+                        continue
                 event, sensor_state, duplicate = _ingest_sensor_projection(
                     device=device,
                     feeder_level=max(0.0, min(100.0, feeder_level)),
                     water_level=max(0.0, min(100.0, water_level)),
                     timestamp=occurred_at,
                     battery_voltage=item.get('battery_voltage_v', payload.get('battery_voltage_v')),
+                    water_current_liters=water_current_liters,
                     feed_sufficient=_coerce_optional_bool(item.get('feed_sufficient', payload.get('feed_sufficient'))),
                     feed_current_kg=item.get('feed_current_kg', payload.get('feed_current_kg')),
                     feed_required_next_kg=item.get('feed_required_next_kg', payload.get('feed_required_next_kg')),

@@ -341,6 +341,7 @@ class DeviceSensorState(models.Model):
     device = models.OneToOneField(Device, on_delete=models.CASCADE, related_name='sensor_state')
     feeder_level_pct = models.FloatField(default=100.0)  # 0-100%
     water_level_pct = models.FloatField(default=100.0)   # 0-100%
+    water_current_liters = models.FloatField(null=True, blank=True)
     # Battery sensing (optional)
     battery_voltage_v = models.FloatField(null=True, blank=True)
     # Feed sufficiency telemetry published by firmware.
