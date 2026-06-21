@@ -687,7 +687,7 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(FeedNowCommand.objects.get(device=self.device).requested_by, user.username)
 
     def test_connection_timeout_creates_alert_and_heartbeat_restores(self):
-        stale_seen = timezone.now() - timedelta(seconds=151)
+        stale_seen = timezone.now() - timedelta(seconds=301)
         self.device.last_seen = stale_seen
         self.device.connection_status = 'connected'
         self.device.save(update_fields=['last_seen', 'connection_status'])
@@ -773,11 +773,11 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(status_payload['device_id'], 'esp32-001')
         self.assertEqual(status_payload['connection_status'], 'connected')
         self.assertTrue(status_payload['is_online'])
-        self.assertEqual(status_payload['connection_timeout_seconds'], 150)
+        self.assertEqual(status_payload['connection_timeout_seconds'], 300)
         self.assertIsNotNone(status_payload['last_seen'])
 
     def test_config_response_exposes_effective_disconnected_status_when_stale(self):
-        self.device.last_seen = timezone.now() - timedelta(seconds=151)
+        self.device.last_seen = timezone.now() - timedelta(seconds=301)
         self.device.connection_status = 'connected'
         self.device.save(update_fields=['last_seen', 'connection_status'])
         DeviceConfig.objects.create(device=self.device, config={})
@@ -791,7 +791,7 @@ class OfflineReplayIngestTests(TestCase):
         self.assertEqual(status_payload['stored_connection_status'], 'connected')
         self.assertEqual(status_payload['connection_status'], 'disconnected')
         self.assertFalse(status_payload['is_online'])
-        self.assertGreaterEqual(status_payload['seconds_since_last_seen'], 150)
+        self.assertGreaterEqual(status_payload['seconds_since_last_seen'], 300)
 
     def test_shutdown_log_creates_low_battery_shutdown_alert(self):
         payload = {

@@ -37,7 +37,7 @@ from django.forms.models import model_to_dict
 logger = logging.getLogger(__name__)
 DEFAULT_IMPORTANT_LOG_KEYWORDS = ['critical', 'error', 'fault', 'warning', 'alert', 'offline', 'fail']
 POWER_ALERT_DEDUP_SECONDS = 45
-DEVICE_CONNECTION_TIMEOUT_SECONDS = 150
+DEVICE_CONNECTION_TIMEOUT_SECONDS = 5 * 60
 DEVICE_CONNECTION_LOSS_ALERT_TYPE = 'device_connection_loss'
 DEVICE_CONNECTION_RESTORED_ALERT_TYPE = 'device_connection_restored'
 DEVICE_CONNECTION_LOSS_LOG_TYPE = 'device_connection_loss'
